@@ -9,6 +9,7 @@ const char = u8;
 pub fn PDBReader(fileBuf: []u8, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
     var atoms = std.ArrayList(AtomRecord).init(allocator);
     var lines = std.mem.splitSequence(u8, fileBuf, "\n");
+    var recordNumber: u32 = 0;
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line[0..3], "END")) {
             break;
@@ -16,7 +17,8 @@ pub fn PDBReader(fileBuf: []u8, allocator: std.mem.Allocator) !std.ArrayList(Ato
         if (!strings.equals(line[0..4], "ATOM")) {
             continue;
         }
-        var record = try AtomRecord.parse(line, allocator);
+        var record = try AtomRecord.parse(line, recordNumber, allocator);
+        recordNumber = record.serial;
         try atoms.append(record);
     }
     return atoms;
@@ -76,15 +78,45 @@ pub const AtomRecord = struct {
         return list.items;
     }
 
-    pub fn parse(line: []const u8, allocator: std.mem.Allocator) !AtomRecord {
+    pub fn parse(line: []const u8, index: u32, allocator: std.mem.Allocator) !AtomRecord {
         var parsedLine = Line.new(line);
-        var atom = try parsedLine.convertToAtomRecord(allocator);
+        var atom = try parsedLine.convertToAtomRecord(index, allocator);
         // std.debug.print("{s}\n", .{atom.record});
         return atom;
     }
 
-    pub fn print(self: *AtomRecord) !void {
-        std.debug.print("{s} {d} {s} {s} {d} {d} {d} {d} {?d}\n", .{ self.record, self.serial, self.name, self.resName, self.resSeq, self.x, self.y, self.z, self.iCode });
+    pub const print = printAll;
+
+    pub fn printAll(self: *AtomRecord) !void {
+        const fields = @typeInfo(AtomRecord).Struct.fields;
+        inline for (fields) |field| {
+            switch (field.type) {
+                u8, u16, u32, u64, i8, i16, i32, i64, f32, f64 => {
+                    std.debug.print("{s}:{d} ", .{ field.name, @field(self, field.name) });
+                },
+                string => {
+                    var str: string = @field(self, field.name);
+                    if (str.len != 0) {
+                        std.debug.print("{s}:{s} ", .{ field.name, str });
+                    }
+                },
+                ?string => {
+                    var str: ?string = @field(self, field.name);
+                    if (str) |s| {
+                        std.debug.print("{s}:{s} ", .{ field.name, s });
+                    } else {
+                        std.debug.print("nope", .{});
+                    }
+                },
+                ?u8 => {
+                    if (@field(self, field.name) != null) {
+                        std.debug.print("{s}:{?d} ", .{ field.name, @field(self, field.name) });
+                    }
+                },
+                else => std.debug.print("unknown type {}\n", .{field.type}),
+            }
+        }
+        std.debug.print("\n", .{});
     }
 
     pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) !void {
@@ -133,11 +165,11 @@ const Line = struct {
         return ret;
     }
 
-    fn convertToAtomRecord(self: *Line, allocator: std.mem.Allocator) !AtomRecord {
+    fn convertToAtomRecord(self: *Line, serialIndex: u32, allocator: std.mem.Allocator) !AtomRecord {
         var atom: AtomRecord = undefined;
         // var parsed = strings.removeSpaces(&self.record);
         atom.record = try strings.removeSpacesAlloc(&self.record, allocator);
-        atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch 0;
+        atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
         atom.name = try strings.removeSpacesAlloc(&self.name, allocator);
         atom.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
         atom.resName = try strings.removeSpacesAlloc(&self.resName, allocator);
@@ -151,6 +183,7 @@ const Line = struct {
         atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.tempFactor));
         atom.element = try strings.removeSpacesAlloc(&self.element, allocator);
         atom.charge = try strings.removeSpacesAlloc(&self.charge, allocator);
+        // atom.charge = try strings.removeSpacesAlloc(&self.charge, allocator);
         atom.entry = try strings.removeSpacesAlloc(&self._space4, allocator);
         return atom;
     }

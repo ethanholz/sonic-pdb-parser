@@ -24,7 +24,6 @@ const Args = struct {
                 args.fileName = @as(string, argsList[idx + 1]);
             }
             if (strings.equals(arg, "-o")) {
-                // @memcpy(args.output, arg)
                 args.output = @as(string, argsList[idx + 1]);
             }
             if (strings.equals(arg, "-h")) {

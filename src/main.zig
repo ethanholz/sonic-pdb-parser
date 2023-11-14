@@ -9,6 +9,11 @@ const AtomRecord = @import("records.zig").AtomRecord;
 const RunRecord = @import("records.zig").RunRecord;
 const PDBReader = @import("records.zig").PDBReader;
 
+test {
+    // this causes 'zig build test' to test any referenced files
+    _ = @import("records.zig");
+}
+
 const Args = struct {
     runs: u64 = 100,
     fileName: string = "",
@@ -57,8 +62,7 @@ pub fn main() !void {
         var atoms = try PDBReader(read, allocator);
         defer atoms.deinit();
         for (atoms.items) |*atom| {
-            try atom.print();
-            try atom.free(allocator);
+            std.debug.print("{}\n", .{atom});
         }
         std.os.exit(0);
     }
@@ -85,7 +89,7 @@ pub fn main() !void {
         var elapsed = timer.read();
         try times.append(elapsed);
         var runRecord: RunRecord = RunRecord{ .run = i + 1, .time = elapsed, .file = parsedArgs.fileName };
-        try runRecord.writeCSVLine(allocator, csv);
+        try runRecord.writeCSVLine(csv);
         sum += elapsed;
         std.debug.print("Run {} Complete\n", .{i});
     }

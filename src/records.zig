@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 
 const strings = @import("strings.zig");
 
@@ -17,7 +18,7 @@ pub fn PDBReader(fileBuf: []u8, allocator: std.mem.Allocator) !std.ArrayList(Ato
         if (!strings.equals(line[0..4], "ATOM")) {
             continue;
         }
-        var record = try AtomRecord.parse(line, recordNumber, allocator);
+        const record = try AtomRecord.parse(line, recordNumber);
         recordNumber = record.serial;
         try atoms.append(record);
     }
@@ -34,10 +35,9 @@ pub const RunRecord = struct {
     /// The file name
     file: string,
 
-    pub fn writeCSVLine(self: *RunRecord, allocator: std.mem.Allocator, file: std.fs.File) !void {
-        const runPrint = try std.fmt.allocPrint(allocator, "{d},{d},{s}\n", .{ self.run, self.time, self.file });
-        defer allocator.free(runPrint);
-        _ = try file.write(runPrint);
+    // there is no need to allocate here. you can print directly to the file.
+    pub fn writeCSVLine(self: *RunRecord, file: std.fs.File) !void {
+        try file.writer().print("{d},{d},{s}\n", .{ self.run, self.time, self.file });
     }
 
     pub fn writeCSVHeader(file: std.fs.File) !void {
@@ -73,63 +73,62 @@ pub const AtomRecord = struct {
     charge: string = undefined,
     entry: string = undefined,
 
-    pub fn toJson(self: *AtomRecord, list: *std.ArrayList(u8)) ![]u8 {
+    pub fn toJson(self: AtomRecord, list: *std.ArrayList(u8)) ![]u8 {
         _ = try std.json.stringify(self, .{}, list.writer());
         return list.items;
     }
 
-    pub fn parse(line: []const u8, index: u32, allocator: std.mem.Allocator) !AtomRecord {
-        var parsedLine = Line.new(line);
-        var atom = try parsedLine.convertToAtomRecord(index, allocator);
+    pub fn parse(line: []const u8, index: u32) !AtomRecord {
+        const parsedLine = Line.new(line);
+        const atom = try parsedLine.convertToAtomRecord(index);
         // std.debug.print("{s}\n", .{atom.record});
         return atom;
     }
 
-    pub const print = printAll;
-
-    pub fn printAll(self: *AtomRecord) !void {
-        const fields = @typeInfo(AtomRecord).Struct.fields;
-        inline for (fields) |field| {
-            switch (field.type) {
-                u8, u16, u32, u64, i8, i16, i32, i64, f32, f64 => {
-                    std.debug.print("{s}:{d} ", .{ field.name, @field(self, field.name) });
-                },
-                string => {
-                    var str: string = @field(self, field.name);
-                    if (str.len != 0) {
-                        std.debug.print("{s}:{s} ", .{ field.name, str });
-                    }
-                },
-                ?string => {
-                    var str: ?string = @field(self, field.name);
-                    if (str) |s| {
-                        std.debug.print("{s}:{s} ", .{ field.name, s });
-                    } else {
-                        std.debug.print("nope", .{});
-                    }
-                },
-                ?u8 => {
-                    if (@field(self, field.name) != null) {
-                        std.debug.print("{s}:{?d} ", .{ field.name, @field(self, field.name) });
-                    }
-                },
-                else => std.debug.print("unknown type {}\n", .{field.type}),
+    // this formatter allows for printing an atom from any print() method.
+    // and when fmt == "json", it writes json.
+    pub fn format(
+        self: AtomRecord,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (comptime std.mem.eql(u8, fmt, "json")) {
+            _ = try std.json.stringify(self, .{}, writer);
+        } else {
+            const fields = @typeInfo(AtomRecord).Struct.fields;
+            inline for (fields) |field| {
+                const fmt2 = switch (@typeInfo(field.type)) {
+                    .Optional => |info| if (comptime std.meta.trait.isZigString(info.child))
+                        "{?s}"
+                    else
+                        "{?}",
+                    .Float => "{d:.3}",
+                    .Int => "{}",
+                    else => if (comptime std.meta.trait.isZigString(field.type))
+                        "{s}"
+                    else
+                        "{}",
+                };
+                try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(self, field.name) });
             }
         }
-        std.debug.print("\n", .{});
     }
 
-    pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) !void {
-        allocator.free(self.record);
-        allocator.free(self.name);
-        allocator.free(self.resName);
-        allocator.free(self.element);
-        allocator.free(self.charge);
-        allocator.free(self.entry);
-    }
+    // ive removed this method as its no longer necessary but notice that i've
+    // changed the return type so that it can't error.  this allows you to
+    // `defer free()`
+    // pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
 };
 
-const Line = struct {
+// i've made this an extern struct which has well defined memory layout
+// unlike normal zig structs.  i did this because all its fields are arrays
+// which are extern compatible.  this means you can bitcast to/from an array.
+// however when i tried that i noticed the test data was shorter than 80 bytes
+// and caused the following error.  i've left the commented out code below
+// which led to this.  my solution was to pointer cast.  this prevents the oob
+// read and will likely be a little faster, returning 8 bytes vs 80 bytes.
+const Line = extern struct {
     record: [6]u8,
     serial: [5]u8,
     _space: [1]u8,
@@ -150,29 +149,22 @@ const Line = struct {
     element: [2]u8,
     charge: [2]u8,
 
-    fn new(line: []const u8) Line {
-        var ret: Line = undefined;
-        comptime var idx = 0;
-        const fields = @typeInfo(Line).Struct.fields;
-        inline for (fields) |field| {
-            comptime var len = @typeInfo(field.type).Array.len;
-            if (idx + len > line.len) {
-                break;
-            }
-            @field(ret, field.name) = line[idx .. idx + len].*;
-            idx += len;
-        }
-        return ret;
+    // i've left this in just to show what i might otherwise do.  if uncommented
+    // it will produce the following error
+    //   : error: thread 681909 panic: index out of bounds: index 80, len 76
+    // fn new(line: []const u8) Line {
+    //     return @bitCast(line[0..@sizeOf(Line)].*);
+    fn new(line: []const u8) *const Line {
+        return @ptrCast(line.ptr);
     }
 
-    fn convertToAtomRecord(self: *Line, serialIndex: u32, allocator: std.mem.Allocator) !AtomRecord {
+    fn convertToAtomRecord(self: *const Line, serialIndex: u32) !AtomRecord {
         var atom: AtomRecord = undefined;
-        // var parsed = strings.removeSpaces(&self.record);
-        atom.record = try strings.removeSpacesAlloc(&self.record, allocator);
+        atom.record = strings.removeSpaces(&self.record);
         atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
-        atom.name = try strings.removeSpacesAlloc(&self.name, allocator);
+        atom.name = strings.removeSpaces(&self.name);
         atom.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
-        atom.resName = try strings.removeSpacesAlloc(&self.resName, allocator);
+        atom.resName = strings.removeSpaces(&self.resName);
         atom.chainID = self.chainID[0];
         atom.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
         atom.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
@@ -181,93 +173,105 @@ const Line = struct {
         atom.z = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.z));
         atom.occupancy = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.occupancy));
         atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.tempFactor));
-        atom.element = try strings.removeSpacesAlloc(&self.element, allocator);
-        atom.charge = try strings.removeSpacesAlloc(&self.charge, allocator);
-        // atom.charge = try strings.removeSpacesAlloc(&self.charge, allocator);
-        atom.entry = try strings.removeSpacesAlloc(&self._space4, allocator);
+        atom.element = strings.removeSpaces(&self.element);
+        atom.charge = strings.removeSpaces(&self.charge);
+        // atom.charge = strings.removeSpaces(&self.charge);
+        atom.entry = strings.removeSpaces(&self._space4);
         return atom;
     }
 };
 
+// i noticed you weren't able to see the difference between strings.  this is why
+// i've used expectEqualStrings() below.  and this helper will also print out
+// the expected vs actual values when they differ.
+fn expectEqual(expected: anytype, actual: anytype) !void {
+    const T = @TypeOf(expected, actual); // peer type resolution
+    return testing.expectEqual(@as(T, expected), actual);
+}
+
 test "convert to atoms" {
     const line = "ATOM     17  NE2 GLN     2      25.562  32.733   1.806  1.00 19.49      1UBQ";
-    var parsedLine = Line.new(line);
-    try std.testing.expect(strings.equals("ATOM  ", &parsedLine.record));
-    try std.testing.expect(strings.equals("   17", &parsedLine.serial));
-    try std.testing.expect(strings.equals(" NE2", &parsedLine.name));
-    try std.testing.expect(strings.equals(" ", &parsedLine.altLoc));
-    try std.testing.expect(strings.equals("GLN", &parsedLine.resName));
-    try std.testing.expect(strings.equals("   2", &parsedLine.resSeq));
-    try std.testing.expect(strings.equals("  25.562", &parsedLine.x));
-    try std.testing.expect(strings.equals("  32.733", &parsedLine.y));
-    try std.testing.expect(strings.equals("   1.806", &parsedLine.z));
-    try std.testing.expect(strings.equals("  1.00", &parsedLine.occupancy));
-    try std.testing.expect(strings.equals(" 19.49", &parsedLine.tempFactor));
-    try std.testing.expect(strings.equals("      1UBQ", &parsedLine._space4));
-    var atom = try parsedLine.convertToAtomRecord();
-    try std.testing.expect(strings.equals("ATOM", atom.record));
-    try std.testing.expect(17 == atom.serial);
-    try std.testing.expect(strings.equals("NE2", atom.name));
-    try std.testing.expect(strings.equals("GLN", atom.resName));
+    const parsedLine = Line.new(line);
+    try testing.expectEqualStrings("ATOM  ", &parsedLine.record);
+    try testing.expectEqualStrings("   17", &parsedLine.serial);
+    try testing.expectEqualStrings(" NE2", &parsedLine.name);
+    try testing.expectEqualStrings(" ", &parsedLine.altLoc);
+    try testing.expectEqualStrings("GLN", &parsedLine.resName);
+    try testing.expectEqualStrings("   2", &parsedLine.resSeq);
+    try testing.expectEqualStrings("  25.562", &parsedLine.x);
+    try testing.expectEqualStrings("  32.733", &parsedLine.y);
+    try testing.expectEqualStrings("   1.806", &parsedLine.z);
+    try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
+    try testing.expectEqualStrings(" 19.49", &parsedLine.tempFactor);
+    try testing.expectEqualStrings("      1UBQ", &parsedLine._space4);
+    const atom = try parsedLine.convertToAtomRecord(1);
+    try testing.expectEqualStrings("ATOM", atom.record);
+    // try std.testing.expect(17 == atom.serial);
+    try expectEqual(17, atom.serial);
+    try testing.expectEqualStrings("NE2", atom.name);
+    try testing.expectEqualStrings("GLN", atom.resName);
     try std.testing.expect(2 == atom.resSeq);
-    try std.testing.expect(25.562 == atom.x);
-    try std.testing.expect(32.733 == atom.y);
-    try std.testing.expect(1.806 == atom.z);
-    try std.testing.expect(1.00 == atom.occupancy);
-    try std.testing.expect(19.49 == atom.tempFactor);
-    try std.testing.expect(strings.equals("1UBQ", atom.entry));
+    try expectEqual(2, atom.resSeq);
+    try expectEqual(25.562, atom.x);
+    try expectEqual(32.733, atom.y);
+    try expectEqual(1.806, atom.z);
+    try expectEqual(1.00, atom.occupancy);
+    try expectEqual(19.49, atom.tempFactor);
+    try testing.expectEqualStrings("1UBQ", atom.entry);
+    // this is how you use the format() method from above.
+    std.debug.print("{}\n", .{atom});
 }
 
 test "convert to atoms drude" {
     const line = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
-    var parsedLine = Line.new(line);
-    try std.testing.expect(strings.equals("ATOM  ", &parsedLine.record));
-    try std.testing.expect(strings.equals("    1", &parsedLine.serial));
-    try std.testing.expect(strings.equals(" N  ", &parsedLine.name));
-    try std.testing.expect(strings.equals(" ", &parsedLine.altLoc));
-    try std.testing.expect(strings.equals("MET", &parsedLine.resName));
-    try std.testing.expect(strings.equals("   1", &parsedLine.resSeq));
-    try std.testing.expect(strings.equals("  34.774", &parsedLine.x));
-    try std.testing.expect(strings.equals("  28.332", &parsedLine.y));
-    try std.testing.expect(strings.equals("  51.752", &parsedLine.z));
-    try std.testing.expect(strings.equals("  1.00", &parsedLine.occupancy));
-    try std.testing.expect(strings.equals("  0.00", &parsedLine.tempFactor));
-    try std.testing.expect(strings.equals("      PROA", &parsedLine._space4));
-    var atom = try parsedLine.convertToAtomRecord();
-    try std.testing.expect(strings.equals("ATOM", atom.record));
-    try std.testing.expect(1 == atom.serial);
-    try std.testing.expect(strings.equals("N", atom.name));
-    try std.testing.expect(strings.equals("MET", atom.resName));
-    try std.testing.expect(1 == atom.resSeq);
-    try std.testing.expect(34.774 == atom.x);
-    try std.testing.expect(28.332 == atom.y);
-    try std.testing.expect(51.752 == atom.z);
-    try std.testing.expect(1.00 == atom.occupancy);
-    try std.testing.expect(0.00 == atom.tempFactor);
-    try std.testing.expect(strings.equals("PROA", atom.entry));
+    const parsedLine = Line.new(line);
+    try testing.expectEqualStrings("ATOM  ", &parsedLine.record);
+    try testing.expectEqualStrings("    1", &parsedLine.serial);
+    try testing.expectEqualStrings(" N  ", &parsedLine.name);
+    try testing.expectEqualStrings(" ", &parsedLine.altLoc);
+    try testing.expectEqualStrings("MET", &parsedLine.resName);
+    try testing.expectEqualStrings("   1", &parsedLine.resSeq);
+    try testing.expectEqualStrings("  34.774", &parsedLine.x);
+    try testing.expectEqualStrings("  28.332", &parsedLine.y);
+    try testing.expectEqualStrings("  51.752", &parsedLine.z);
+    try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
+    try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
+    try testing.expectEqualStrings("      PROA", &parsedLine._space4);
+    const atom = try parsedLine.convertToAtomRecord(0);
+    try testing.expectEqualStrings("ATOM", atom.record);
+    try expectEqual(1, atom.serial);
+    try testing.expectEqualStrings("N", atom.name);
+    try testing.expectEqualStrings("MET", atom.resName);
+    try expectEqual(1, atom.resSeq);
+    try expectEqual(34.774, atom.x);
+    try expectEqual(28.332, atom.y);
+    try expectEqual(51.752, atom.z);
+    try expectEqual(1.00, atom.occupancy);
+    try expectEqual(0.00, atom.tempFactor);
+    try testing.expectEqualStrings("PROA", atom.entry);
 }
 
 test "convert to atoms multi-line" {
     const lines = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA\nATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
-    var atoms = std.ArrayList(AtomRecord).init(std.testing.allocator);
+    var atoms = std.ArrayList(AtomRecord).init(testing.allocator);
     defer atoms.deinit();
+
     var split = std.mem.splitSequence(u8, lines, "\n");
     while (split.next()) |line| {
-        var parsedLine = Line.new(line);
-        var atom = try parsedLine.convertToAtomRecord();
+        const parsedLine = Line.new(line);
+        const atom = try parsedLine.convertToAtomRecord(0);
         try atoms.append(atom);
     }
-    try std.testing.expect(2 == atoms.items.len);
-    try std.testing.expect(strings.equals("ATOM", atoms.items[0].record));
-    try std.testing.expect(strings.equals("ATOM", atoms.items[1].record));
+    try expectEqual(2, atoms.items.len);
+    try testing.expectEqualStrings("ATOM", atoms.items[0].record);
+    try testing.expectEqualStrings("ATOM", atoms.items[1].record);
 }
 
 test "toJson" {
     const line = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
-    var parsedLine = Line.new(line);
-    var atom = try parsedLine.convertToAtomRecord();
-    var arrayList = std.ArrayList(u8).init(std.testing.allocator);
-    defer arrayList.deinit();
-    var out = try atom.toJson(&arrayList);
-    std.debug.print("\n{s}\n", .{out});
+    const parsedLine = Line.new(line);
+    const atom = try parsedLine.convertToAtomRecord(0);
+
+    // use a format specifier to print json. yet another way to avoid allocting :^)
+    std.debug.print("\n{json}\n", .{atom});
 }

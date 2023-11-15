@@ -52,14 +52,12 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
     const parsedArgs = try Args.parseArgs(args);
 
+    const file = try fs.cwd().openFile(parsedArgs.fileName, .{});
+    defer file.close();
+
     if (parsedArgs.runs == 1) {
-        const file = try fs.cwd().openFile(parsedArgs.fileName, .{});
-        defer file.close();
-        var stat = try file.stat();
-        var size = stat.size;
-        var read = try file.readToEndAlloc(allocator, size);
-        defer allocator.free(read);
-        var atoms = try PDBReader(read, allocator);
+        var bufreader = std.io.bufferedReader(file.reader());
+        var atoms = try PDBReader(bufreader.reader(), allocator);
         defer atoms.deinit();
         for (atoms.items) |*atom| {
             std.debug.print("{}\n", .{atom});
@@ -75,17 +73,18 @@ pub fn main() !void {
     defer csv.close();
     try RunRecord.writeCSVHeader(csv);
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arenaAllocator = arena.allocator();
+
     for (0..parsedArgs.runs) |i| {
+        defer {
+            _ = arena.reset(.retain_capacity);
+            file.seekTo(0) catch @panic("file error");
+        }
         timer.reset();
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-        const arenaAllocator = arena.allocator();
-        const file = try fs.cwd().openFile(parsedArgs.fileName, .{});
-        defer file.close();
-        var stat = try file.stat();
-        var size = stat.size;
-        var read = try file.readToEndAlloc(arenaAllocator, size);
-        _ = try PDBReader(read, arenaAllocator);
+        var bufreader = std.io.bufferedReader(file.reader());
+        _ = try PDBReader(bufreader.reader(), arenaAllocator);
         var elapsed = timer.read();
         try times.append(elapsed);
         var runRecord: RunRecord = RunRecord{ .run = i + 1, .time = elapsed, .file = parsedArgs.fileName };

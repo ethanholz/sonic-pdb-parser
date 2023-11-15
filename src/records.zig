@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const testalloc = testing.allocator;
 
 const strings = @import("strings.zig");
 
@@ -7,18 +8,18 @@ const string = []const u8;
 const char = u8;
 
 // Reads in a PDB file and converts them to an ArrayList of atoms
-pub fn PDBReader(fileBuf: []u8, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
+pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
     var atoms = std.ArrayList(AtomRecord).init(allocator);
-    var lines = std.mem.splitSequence(u8, fileBuf, "\n");
     var recordNumber: u32 = 0;
-    while (lines.next()) |line| {
+    var buf: [100]u8 = undefined;
+    while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         if (std.mem.eql(u8, line[0..3], "END")) {
             break;
         }
         if (!strings.equals(line[0..4], "ATOM")) {
             continue;
         }
-        const record = try AtomRecord.parse(line, recordNumber);
+        const record = try AtomRecord.parse(line, recordNumber, allocator);
         recordNumber = record.serial;
         try atoms.append(record);
     }
@@ -78,9 +79,9 @@ pub const AtomRecord = struct {
         return list.items;
     }
 
-    pub fn parse(line: []const u8, index: u32) !AtomRecord {
+    pub fn parse(line: []const u8, index: u32, allocator: std.mem.Allocator) !AtomRecord {
         const parsedLine = Line.new(line);
-        const atom = try parsedLine.convertToAtomRecord(index);
+        const atom = try parsedLine.convertToAtomRecord(index, allocator);
         // std.debug.print("{s}\n", .{atom.record});
         return atom;
     }
@@ -115,10 +116,14 @@ pub const AtomRecord = struct {
         }
     }
 
-    // ive removed this method as its no longer necessary but notice that i've
-    // changed the return type so that it can't error.  this allows you to
-    // `defer free()`
-    // pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
+    pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
+        allocator.free(self.charge);
+        allocator.free(self.element);
+        allocator.free(self.entry);
+        allocator.free(self.name);
+        // allocator.free(self.record);
+        allocator.free(self.resName);
+    }
 };
 
 // i've made this an extern struct which has well defined memory layout
@@ -158,13 +163,13 @@ const Line = extern struct {
         return @ptrCast(line.ptr);
     }
 
-    fn convertToAtomRecord(self: *const Line, serialIndex: u32) !AtomRecord {
+    fn convertToAtomRecord(self: *const Line, serialIndex: u32, allocator: std.mem.Allocator) !AtomRecord {
         var atom: AtomRecord = undefined;
         atom.record = strings.removeSpaces(&self.record);
         atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
-        atom.name = strings.removeSpaces(&self.name);
+        atom.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));
         atom.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
-        atom.resName = strings.removeSpaces(&self.resName);
+        atom.resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName));
         atom.chainID = self.chainID[0];
         atom.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
         atom.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
@@ -173,10 +178,10 @@ const Line = extern struct {
         atom.z = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.z));
         atom.occupancy = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.occupancy));
         atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.tempFactor));
-        atom.element = strings.removeSpaces(&self.element);
-        atom.charge = strings.removeSpaces(&self.charge);
-        // atom.charge = strings.removeSpaces(&self.charge);
-        atom.entry = strings.removeSpaces(&self._space4);
+        atom.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
+        atom.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
+        // atom.charge = try allocator.dupe(u8,  strings.removeSpaces(&self.charge));
+        atom.entry = try allocator.dupe(u8, strings.removeSpaces(&self._space4));
         return atom;
     }
 };
@@ -204,7 +209,8 @@ test "convert to atoms" {
     try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
     try testing.expectEqualStrings(" 19.49", &parsedLine.tempFactor);
     try testing.expectEqualStrings("      1UBQ", &parsedLine._space4);
-    const atom = try parsedLine.convertToAtomRecord(1);
+    var atom = try parsedLine.convertToAtomRecord(1, testalloc);
+    defer atom.free(testalloc);
     try testing.expectEqualStrings("ATOM", atom.record);
     // try std.testing.expect(17 == atom.serial);
     try expectEqual(17, atom.serial);
@@ -237,7 +243,8 @@ test "convert to atoms drude" {
     try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
     try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
     try testing.expectEqualStrings("      PROA", &parsedLine._space4);
-    const atom = try parsedLine.convertToAtomRecord(0);
+    var atom = try parsedLine.convertToAtomRecord(0, testalloc);
+    defer atom.free(testalloc);
     try testing.expectEqualStrings("ATOM", atom.record);
     try expectEqual(1, atom.serial);
     try testing.expectEqualStrings("N", atom.name);
@@ -254,12 +261,15 @@ test "convert to atoms drude" {
 test "convert to atoms multi-line" {
     const lines = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA\nATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
     var atoms = std.ArrayList(AtomRecord).init(testing.allocator);
-    defer atoms.deinit();
+    defer {
+        for (atoms.items) |*atom| atom.free(testalloc);
+        atoms.deinit();
+    }
 
     var split = std.mem.splitSequence(u8, lines, "\n");
     while (split.next()) |line| {
         const parsedLine = Line.new(line);
-        const atom = try parsedLine.convertToAtomRecord(0);
+        const atom = try parsedLine.convertToAtomRecord(0, testalloc);
         try atoms.append(atom);
     }
     try expectEqual(2, atoms.items.len);
@@ -270,7 +280,8 @@ test "convert to atoms multi-line" {
 test "toJson" {
     const line = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
     const parsedLine = Line.new(line);
-    const atom = try parsedLine.convertToAtomRecord(0);
+    var atom = try parsedLine.convertToAtomRecord(0, testalloc);
+    defer atom.free(testalloc);
 
     // use a format specifier to print json. yet another way to avoid allocting :^)
     std.debug.print("\n{json}\n", .{atom});

@@ -121,7 +121,7 @@ pub const AtomRecord = struct {
         allocator.free(self.element);
         allocator.free(self.entry);
         allocator.free(self.name);
-        // allocator.free(self.record);
+        allocator.free(self.record);
         allocator.free(self.resName);
     }
 };
@@ -165,7 +165,7 @@ const Line = extern struct {
 
     fn convertToAtomRecord(self: *const Line, serialIndex: u32, allocator: std.mem.Allocator) !AtomRecord {
         var atom: AtomRecord = undefined;
-        atom.record = strings.removeSpaces(&self.record);
+        atom.record = try allocator.dupe(u8, strings.removeSpaces(&self.record));
         atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
         atom.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));
         atom.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];

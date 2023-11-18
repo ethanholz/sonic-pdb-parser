@@ -12,6 +12,7 @@ const PDBReader = @import("records.zig").PDBReader;
 test {
     // this causes 'zig build test' to test any referenced files
     _ = @import("records.zig");
+    _ = @import("strings.zig");
 }
 
 const Args = struct {
@@ -60,7 +61,8 @@ pub fn main() !void {
         var atoms = try PDBReader(bufreader.reader(), allocator);
         defer atoms.deinit();
         for (atoms.items) |*atom| {
-            std.debug.print("{}\n", .{atom});
+            std.debug.print("{json}\n", .{atom});
+            atom.free(allocator);
         }
         std.os.exit(0);
     }

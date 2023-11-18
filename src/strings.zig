@@ -8,4 +8,5 @@ pub fn removeSpaces(s: []const u8) []const u8 {
 
 test "removeSpaces" {
     try std.testing.expectEqualStrings("ATOM", removeSpaces("ATOM  "));
+    try std.testing.expectEqualStrings("", removeSpaces("     "));
 }

@@ -11,7 +11,8 @@ const char = u8;
 pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
     var atoms = std.ArrayList(AtomRecord).init(allocator);
     var recordNumber: u32 = 0;
-    var buf: [100]u8 = undefined;
+    // PDB lines are no more than 80 characters long
+    var buf: [80]u8 = undefined;
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         if (std.mem.eql(u8, line[0..3], "END")) {
             break;
@@ -70,9 +71,9 @@ pub const AtomRecord = struct {
     z: f32 = undefined,
     occupancy: f32 = undefined,
     tempFactor: f32 = undefined,
-    element: string = undefined,
-    charge: string = undefined,
-    entry: string = undefined,
+    element: ?string = null,
+    charge: ?string = null,
+    entry: ?string = null,
 
     pub fn toJson(self: AtomRecord, list: *std.ArrayList(u8)) ![]u8 {
         _ = try std.json.stringify(self, .{}, list.writer());
@@ -80,9 +81,9 @@ pub const AtomRecord = struct {
     }
 
     pub fn parse(line: []const u8, index: u32, allocator: std.mem.Allocator) !AtomRecord {
+        const len = line.len;
         const parsedLine = Line.new(line);
-        const atom = try parsedLine.convertToAtomRecord(index, allocator);
-        // std.debug.print("{s}\n", .{atom.record});
+        const atom = try parsedLine.convertToAtomRecord(index, len, allocator);
         return atom;
     }
 
@@ -117,9 +118,17 @@ pub const AtomRecord = struct {
     }
 
     pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
-        allocator.free(self.charge);
-        allocator.free(self.element);
-        allocator.free(self.entry);
+        // allocator.free(self.charge);
+        // allocator.free(self.element);
+        if (self.charge != null) {
+            allocator.free(self.charge.?);
+        }
+        if (self.element != null) {
+            allocator.free(self.element.?);
+        }
+        if (self.entry != null) {
+            allocator.free(self.entry.?);
+        }
         allocator.free(self.name);
         allocator.free(self.record);
         allocator.free(self.resName);
@@ -163,7 +172,7 @@ const Line = extern struct {
         return @ptrCast(line.ptr);
     }
 
-    fn convertToAtomRecord(self: *const Line, serialIndex: u32, allocator: std.mem.Allocator) !AtomRecord {
+    fn convertToAtomRecord(self: *const Line, serialIndex: u32, len: usize, allocator: std.mem.Allocator) !AtomRecord {
         var atom: AtomRecord = undefined;
         atom.record = try allocator.dupe(u8, strings.removeSpaces(&self.record));
         atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
@@ -178,10 +187,21 @@ const Line = extern struct {
         atom.z = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.z));
         atom.occupancy = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.occupancy));
         atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.tempFactor));
-        atom.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
-        atom.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
-        // atom.charge = try allocator.dupe(u8,  strings.removeSpaces(&self.charge));
-        atom.entry = try allocator.dupe(u8, strings.removeSpaces(&self._space4));
+        var entry = strings.removeSpaces(&self._space4);
+        if (entry.len != 0) {
+            atom.entry = try allocator.dupe(u8, entry);
+        }
+        if (len > 76) {
+            atom.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
+            if (len == 80) {
+                atom.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
+            } else {
+                atom.charge = null;
+            }
+        } else {
+            atom.element = null;
+            atom.charge = null;
+        }
         return atom;
     }
 };
@@ -249,15 +269,34 @@ test "convert to atoms drude" {
     try expectEqual(1, atom.serial);
     try testing.expectEqualStrings("N", atom.name);
     try testing.expectEqualStrings("MET", atom.resName);
+    try expectEqual(null, atom.iCode);
     try expectEqual(1, atom.resSeq);
     try expectEqual(34.774, atom.x);
     try expectEqual(28.332, atom.y);
     try expectEqual(51.752, atom.z);
     try expectEqual(1.00, atom.occupancy);
     try expectEqual(0.00, atom.tempFactor);
+    try testing.expectEqualStrings("", atom.element);
+    try testing.expectEqualStrings("", atom.charge);
     try testing.expectEqualStrings("PROA", atom.entry);
 }
 
+// record: string = undefined,
+// serial: u32 = undefined,
+// name: string = undefined,
+// altLoc: ?char = null,
+// resName: string = undefined,
+// chainID: char = undefined,
+// resSeq: u16 = undefined,
+// iCode: ?char = null,
+// x: f32 = undefined,
+// y: f32 = undefined,
+// z: f32 = undefined,
+// occupancy: f32 = undefined,
+// tempFactor: f32 = undefined,
+// element: string = undefined,
+// charge: string = undefined,
+// entry: string = undefined,
 test "convert to atoms multi-line" {
     const lines = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA\nATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
     var atoms = std.ArrayList(AtomRecord).init(testing.allocator);

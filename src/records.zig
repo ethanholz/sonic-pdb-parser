@@ -119,8 +119,6 @@ pub const AtomRecord = struct {
     }
 
     pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
-        // allocator.free(self.charge);
-        // allocator.free(self.element);
         if (self.charge != null) {
             allocator.free(self.charge.?);
         }
@@ -225,10 +223,9 @@ test "convert to atoms" {
     try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
     try testing.expectEqualStrings(" 19.49", &parsedLine.tempFactor);
     try testing.expectEqualStrings("      1UBQ", &parsedLine._space4);
-    var atom = try parsedLine.convertToAtomRecord(1, testalloc);
+    var atom = try parsedLine.convertToAtomRecord(1, line.len, testalloc);
     defer atom.free(testalloc);
     try testing.expectEqualStrings("ATOM", atom.record);
-    // try std.testing.expect(17 == atom.serial);
     try expectEqual(17, atom.serial);
     try testing.expectEqualStrings("NE2", atom.name);
     try testing.expectEqualStrings("GLN", atom.resName);
@@ -239,9 +236,7 @@ test "convert to atoms" {
     try expectEqual(1.806, atom.z);
     try expectEqual(1.00, atom.occupancy);
     try expectEqual(19.49, atom.tempFactor);
-    try testing.expectEqualStrings("1UBQ", atom.entry);
-    // this is how you use the format() method from above.
-    std.debug.print("{}\n", .{atom});
+    try testing.expectEqualStrings("1UBQ", atom.entry.?);
 }
 
 test "convert to atoms drude" {
@@ -259,8 +254,7 @@ test "convert to atoms drude" {
     try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
     try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
     try testing.expectEqualStrings("      PROA", &parsedLine._space4);
-    var atom = try parsedLine.convertToAtomRecord(0, testalloc);
-    defer atom.free(testalloc);
+    var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
     try testing.expectEqualStrings("ATOM", atom.record);
     try expectEqual(1, atom.serial);
     try testing.expectEqualStrings("N", atom.name);
@@ -272,27 +266,11 @@ test "convert to atoms drude" {
     try expectEqual(51.752, atom.z);
     try expectEqual(1.00, atom.occupancy);
     try expectEqual(0.00, atom.tempFactor);
-    try testing.expectEqualStrings("", atom.element);
-    try testing.expectEqualStrings("", atom.charge);
-    try testing.expectEqualStrings("PROA", atom.entry);
+    try expectEqual(null, atom.element);
+    try expectEqual(null, atom.charge);
+    try testing.expectEqualStrings("PROA", atom.entry.?);
 }
 
-// record: string = undefined,
-// serial: u32 = undefined,
-// name: string = undefined,
-// altLoc: ?char = null,
-// resName: string = undefined,
-// chainID: char = undefined,
-// resSeq: u16 = undefined,
-// iCode: ?char = null,
-// x: f32 = undefined,
-// y: f32 = undefined,
-// z: f32 = undefined,
-// occupancy: f32 = undefined,
-// tempFactor: f32 = undefined,
-// element: string = undefined,
-// charge: string = undefined,
-// entry: string = undefined,
 test "convert to atoms multi-line" {
     const lines = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA\nATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
     var atoms = std.ArrayList(AtomRecord).init(testing.allocator);
@@ -304,7 +282,7 @@ test "convert to atoms multi-line" {
     var split = std.mem.splitSequence(u8, lines, "\n");
     while (split.next()) |line| {
         const parsedLine = Line.new(line);
-        const atom = try parsedLine.convertToAtomRecord(0, testalloc);
+        const atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
         try atoms.append(atom);
     }
     try expectEqual(2, atoms.items.len);
@@ -315,7 +293,7 @@ test "convert to atoms multi-line" {
 test "toJson" {
     const line = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
     const parsedLine = Line.new(line);
-    var atom = try parsedLine.convertToAtomRecord(0, testalloc);
+    var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
     defer atom.free(testalloc);
 
     // use a format specifier to print json. yet another way to avoid allocting :^)

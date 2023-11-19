@@ -196,12 +196,7 @@ const Line = extern struct {
             atom.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
             if (len == 80) {
                 atom.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
-            } else {
-                atom.charge = null;
             }
-        } else {
-            atom.element = null;
-            atom.charge = null;
         }
         return atom;
     }

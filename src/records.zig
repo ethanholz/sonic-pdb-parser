@@ -236,6 +236,8 @@ test "convert to atoms" {
     try expectEqual(1.806, atom.z);
     try expectEqual(1.00, atom.occupancy);
     try expectEqual(19.49, atom.tempFactor);
+    try expectEqual(null, atom.element);
+    try expectEqual(null, atom.charge);
     try testing.expectEqualStrings("1UBQ", atom.entry.?);
 }
 
@@ -272,6 +274,7 @@ test "convert to atoms drude" {
     try testing.expectEqualStrings("PROA", atom.entry.?);
 }
 
+// TODO: Update test to handle different lines, rather than the same
 test "convert to atoms multi-line" {
     const lines = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA\nATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
     var atoms = std.ArrayList(AtomRecord).init(testing.allocator);
@@ -283,12 +286,38 @@ test "convert to atoms multi-line" {
     var split = std.mem.splitSequence(u8, lines, "\n");
     while (split.next()) |line| {
         const parsedLine = Line.new(line);
-        const atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
+        try testing.expectEqualStrings("ATOM  ", &parsedLine.record);
+        try testing.expectEqualStrings("    1", &parsedLine.serial);
+        try testing.expectEqualStrings(" N  ", &parsedLine.name);
+        try testing.expectEqualStrings(" ", &parsedLine.altLoc);
+        try testing.expectEqualStrings("MET", &parsedLine.resName);
+        try testing.expectEqualStrings("   1", &parsedLine.resSeq);
+        try testing.expectEqualStrings("  34.774", &parsedLine.x);
+        try testing.expectEqualStrings("  28.332", &parsedLine.y);
+        try testing.expectEqualStrings("  51.752", &parsedLine.z);
+        try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
+        try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
+        try testing.expectEqualStrings("      PROA", &parsedLine._space4);
+        var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
         try atoms.append(atom);
     }
     try expectEqual(2, atoms.items.len);
-    try testing.expectEqualStrings("ATOM", atoms.items[0].record);
-    try testing.expectEqualStrings("ATOM", atoms.items[1].record);
+    for (atoms.items) |atom| {
+        try testing.expectEqualStrings("ATOM", atom.record);
+        try expectEqual(1, atom.serial);
+        try testing.expectEqualStrings("N", atom.name);
+        try testing.expectEqualStrings("MET", atom.resName);
+        try expectEqual(null, atom.iCode);
+        try expectEqual(1, atom.resSeq);
+        try expectEqual(34.774, atom.x);
+        try expectEqual(28.332, atom.y);
+        try expectEqual(51.752, atom.z);
+        try expectEqual(1.00, atom.occupancy);
+        try expectEqual(0.00, atom.tempFactor);
+        try expectEqual(null, atom.element);
+        try expectEqual(null, atom.charge);
+        try testing.expectEqualStrings("PROA", atom.entry.?);
+    }
 }
 
 test "toJson" {

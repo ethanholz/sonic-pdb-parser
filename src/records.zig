@@ -11,8 +11,9 @@ const char = u8;
 pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
     var atoms = std.ArrayList(AtomRecord).init(allocator);
     var recordNumber: u32 = 0;
-    // PDB lines are no more than 80 characters long
-    var buf: [80]u8 = undefined;
+    // PDB lines are should not be more than 80 characters long
+    // Some of the CHARMM files are longer
+    var buf: [90]u8 = undefined;
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         if (std.mem.eql(u8, line[0..3], "END")) {
             break;

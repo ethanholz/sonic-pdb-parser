@@ -255,6 +255,7 @@ test "convert to atoms drude" {
     try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
     try testing.expectEqualStrings("      PROA", &parsedLine._space4);
     var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
+    defer atom.free(testalloc);
     try testing.expectEqualStrings("ATOM", atom.record);
     try expectEqual(1, atom.serial);
     try testing.expectEqualStrings("N", atom.name);

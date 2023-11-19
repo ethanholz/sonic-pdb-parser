@@ -172,7 +172,7 @@ const Line = extern struct {
     }
 
     fn convertToAtomRecord(self: *const Line, serialIndex: u32, len: usize, allocator: std.mem.Allocator) !AtomRecord {
-        var atom: AtomRecord = undefined;
+        var atom: AtomRecord = AtomRecord{};
         atom.record = try allocator.dupe(u8, strings.removeSpaces(&self.record));
         atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
         atom.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));

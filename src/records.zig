@@ -14,17 +14,14 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(R
     // PDB lines are should not be more than 80 characters long
     // Some of the CHARMM files are longer
     var buf: [90]u8 = undefined;
+    const end = std.mem.readInt(u48, "END   ", .little);
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         const tag_int = std.mem.readInt(u48, line[0..6], .little);
+        if (tag_int == end) break;
         const tag = std.meta.intToEnum(RecordType, tag_int) catch continue;
-        switch (tag) {
-            .end => break,
-            else => {
-                const record = try Record.parse(line, tag, recordNumber, allocator);
-                recordNumber = record.serial();
-                try records.append(record);
-            },
-        }
+        const record = try Record.parse(line, tag, recordNumber, allocator);
+        recordNumber = record.serial();
+        try records.append(record);
     }
     return records;
 }
@@ -105,7 +102,6 @@ pub const AtomRecord = struct {
 
 // zig fmt: off
 pub const RecordType = enum(u48) {
-    end =    std.mem.readInt(u48, "END   ", .little),
     atom =   std.mem.readInt(u48, "ATOM  ", .little),
     hetatm = std.mem.readInt(u48, "HETATM", .little),
     term =   std.mem.readInt(u48, "TER   ", .little),
@@ -113,7 +109,6 @@ pub const RecordType = enum(u48) {
 // zig fmt: on
 
 pub const Record = union(RecordType) {
-    end,
     atom: AtomRecord,
     hetatm: AtomRecord,
     term: TermRecord,
@@ -126,7 +121,6 @@ pub const Record = union(RecordType) {
     ) !Record {
         const line = Line.new(raw_line);
         const record: Record = switch (tag) {
-            .end => unreachable,
             inline .atom, .hetatm => |t| @unionInit(
                 Record,
                 @tagName(t),
@@ -142,7 +136,6 @@ pub const Record = union(RecordType) {
 
     pub fn serial(self: Record) u32 {
         return switch (self) {
-            .end => unreachable,
             .term => |payload| payload.serial,
             .atom, .hetatm => |payload| payload.serial,
         };
@@ -182,7 +175,6 @@ pub const Record = union(RecordType) {
         switch (self.*) {
             .atom, .hetatm => |*atom| atom.free(allocator),
             .term => |*ter| ter.free(allocator),
-            else => unreachable,
         }
     }
 };

@@ -8,6 +8,7 @@ const string = []const u8;
 const char = u8;
 
 // Reads in a PDB file and converts them to an ArrayList of atoms
+// TODO: Add term records to ArrayList
 pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
     var atoms = std.ArrayList(AtomRecord).init(allocator);
     var recordNumber: u32 = 0;
@@ -18,12 +19,15 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(A
         if (std.mem.eql(u8, line[0..3], "END")) {
             break;
         }
-        if (!strings.equals(line[0..4], "ATOM")) {
-            continue;
+        if (strings.equals(line[0..4], "ATOM") or strings.equals(line[0..6], "HETATM")) {
+            const record = try AtomRecord.parse(line, recordNumber, allocator);
+            recordNumber = record.serial;
+            try atoms.append(record);
         }
-        const record = try AtomRecord.parse(line, recordNumber, allocator);
-        recordNumber = record.serial;
-        try atoms.append(record);
+        if (strings.equals(line[0..3], "TER")) {
+            const record = try TermRecord.parse(line, allocator);
+            std.debug.print("TER: {json}\n", .{record});
+        }
     }
     return atoms;
 }
@@ -55,6 +59,54 @@ pub const RunRecord = struct {
             _ = try file.write(",");
         }
         _ = try file.write("\n");
+    }
+};
+
+pub const TermRecord = struct {
+    record: string = undefined,
+    serial: u32 = undefined,
+    resName: string = undefined,
+    chainID: char = undefined,
+    resSeq: u16 = undefined,
+    iCode: ?char = null,
+
+    pub fn parse(line: []const u8, allocator: std.mem.Allocator) !TermRecord {
+        const parsedLine = Line.new(line);
+        const term = try parsedLine.convertToTermRecord(allocator);
+        return term;
+    }
+
+    // this formatter allows for printing an atom from any print() method.
+    // and when fmt == "json", it writes json.
+    pub fn format(
+        self: TermRecord,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (comptime std.mem.eql(u8, fmt, "json")) {
+            _ = try std.json.stringify(self, .{}, writer);
+        } else {
+            const fields = @typeInfo(TermRecord).Struct.fields;
+            inline for (fields) |field| {
+                const fmt2 = switch (@typeInfo(field.type)) {
+                    .Optional => |info| if (comptime std.meta.trait.isZigString(info.child))
+                        "{?s}"
+                    else
+                        "{?}",
+                    .Int => "{}",
+                    else => if (comptime std.meta.trait.isZigString(field.type))
+                        "{s}"
+                    else
+                        "{}",
+                };
+                try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(self, field.name) });
+            }
+        }
+    }
+    pub fn free(self: *TermRecord, allocator: std.mem.Allocator) void {
+        allocator.free(self.record);
+        allocator.free(self.resName);
     }
 };
 
@@ -169,6 +221,17 @@ const Line = extern struct {
     //     return @bitCast(line[0..@sizeOf(Line)].*);
     fn new(line: []const u8) *const Line {
         return @ptrCast(line.ptr);
+    }
+
+    fn convertToTermRecord(self: *const Line, allocator: std.mem.Allocator) !TermRecord {
+        var ter: TermRecord = TermRecord{};
+        ter.record = try allocator.dupe(u8, strings.removeSpaces(&self.record));
+        ter.serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10);
+        ter.resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName));
+        ter.chainID = self.chainID[0];
+        ter.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
+        ter.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
+        return ter;
     }
 
     fn convertToAtomRecord(self: *const Line, serialIndex: u32, len: usize, allocator: std.mem.Allocator) !AtomRecord {

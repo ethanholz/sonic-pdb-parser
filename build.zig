@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
+    _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

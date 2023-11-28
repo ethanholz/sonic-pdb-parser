@@ -240,7 +240,7 @@ const Line = extern struct {
         atom.z = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.z));
         atom.occupancy = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.occupancy));
         atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.tempFactor));
-        var entry = strings.removeSpaces(&self._space4);
+        const entry = strings.removeSpaces(&self._space4);
         if (entry.len != 0) {
             atom.entry = try allocator.dupe(u8, entry);
         }
@@ -350,7 +350,7 @@ test "convert to atoms multi-line" {
         try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
         try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
         try testing.expectEqualStrings("      PROA", &parsedLine._space4);
-        var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
+        const atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
         try atoms.append(atom);
     }
     try expectEqual(2, atoms.items.len);

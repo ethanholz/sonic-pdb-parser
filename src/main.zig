@@ -87,14 +87,14 @@ pub fn main() !void {
         timer.reset();
         var bufreader = std.io.bufferedReader(file.reader());
         _ = try PDBReader(bufreader.reader(), arenaAllocator);
-        var elapsed = timer.read();
+        const elapsed = timer.read();
         try times.append(elapsed);
         var runRecord: RunRecord = RunRecord{ .run = i + 1, .time = elapsed, .file = parsedArgs.fileName };
         try runRecord.writeCSVLine(csv);
         sum += elapsed;
         std.debug.print("Run {} Complete\n", .{i});
     }
-    var average: f32 = @floatFromInt(sum / parsedArgs.runs);
-    var sumF: f32 = @floatFromInt(sum);
+    const average: f32 = @floatFromInt(sum / parsedArgs.runs);
+    const sumF: f32 = @floatFromInt(sum);
     std.debug.print("sum: {d:.6}s\nparse average: {d:.6} s\n", .{ sumF / 1e+9, average / 1e+9 });
 }

@@ -7,29 +7,23 @@ const strings = @import("strings.zig");
 const string = []const u8;
 const char = u8;
 
-// Reads in a PDB file and converts them to an ArrayList of atoms
-// TODO: Add term records to ArrayList
-pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(AtomRecord) {
-    var atoms = std.ArrayList(AtomRecord).init(allocator);
+// Reads in a PDB file and converts them to an ArrayList of records
+pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(Record) {
+    var records = std.ArrayList(Record).init(allocator);
     var recordNumber: u32 = 0;
     // PDB lines are should not be more than 80 characters long
     // Some of the CHARMM files are longer
     var buf: [90]u8 = undefined;
+    const end = std.mem.readInt(u48, "END   ", .little);
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
-        if (std.mem.eql(u8, line[0..3], "END")) {
-            break;
-        }
-        if (strings.equals(line[0..4], "ATOM") or strings.equals(line[0..6], "HETATM")) {
-            const record = try AtomRecord.parse(line, recordNumber, allocator);
-            recordNumber = record.serial;
-            try atoms.append(record);
-        }
-        if (strings.equals(line[0..3], "TER")) {
-            const record = try TermRecord.parse(line, allocator);
-            std.debug.print("TER: {json}\n", .{record});
-        }
+        const tag_int = std.mem.readInt(u48, line[0..6], .little);
+        if (tag_int == end) break;
+        const tag = std.meta.intToEnum(RecordType, tag_int) catch continue;
+        const record = try Record.parse(line, tag, recordNumber, allocator);
+        recordNumber = record.serial();
+        try records.append(record);
     }
-    return atoms;
+    return records;
 }
 
 /// Holds the performance data for a single run
@@ -63,55 +57,18 @@ pub const RunRecord = struct {
 };
 
 pub const TermRecord = struct {
-    record: string = undefined,
-    serial: u32 = undefined,
-    resName: string = undefined,
-    chainID: char = undefined,
-    resSeq: u16 = undefined,
-    iCode: ?char = null,
+    serial: u32,
+    resName: string,
+    chainID: u8,
+    resSeq: u16,
+    iCode: ?u8,
 
-    pub fn parse(line: []const u8, allocator: std.mem.Allocator) !TermRecord {
-        const parsedLine = Line.new(line);
-        const term = try parsedLine.convertToTermRecord(allocator);
-        return term;
-    }
-
-    // this formatter allows for printing an atom from any print() method.
-    // and when fmt == "json", it writes json.
-    pub fn format(
-        self: TermRecord,
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (comptime std.mem.eql(u8, fmt, "json")) {
-            _ = try std.json.stringify(self, .{}, writer);
-        } else {
-            const fields = @typeInfo(TermRecord).Struct.fields;
-            inline for (fields) |field| {
-                const fmt2 = switch (@typeInfo(field.type)) {
-                    .Optional => |info| if (comptime std.meta.trait.isZigString(info.child))
-                        "{?s}"
-                    else
-                        "{?}",
-                    .Int => "{}",
-                    else => if (comptime std.meta.trait.isZigString(field.type))
-                        "{s}"
-                    else
-                        "{}",
-                };
-                try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(self, field.name) });
-            }
-        }
-    }
     pub fn free(self: *TermRecord, allocator: std.mem.Allocator) void {
-        allocator.free(self.record);
         allocator.free(self.resName);
     }
 };
 
 pub const AtomRecord = struct {
-    record: string = undefined,
     serial: u32 = undefined,
     name: string = undefined,
     altLoc: ?char = null,
@@ -128,22 +85,66 @@ pub const AtomRecord = struct {
     charge: ?string = null,
     entry: ?string = null,
 
-    pub fn toJson(self: AtomRecord, list: *std.ArrayList(u8)) ![]u8 {
-        _ = try std.json.stringify(self, .{}, list.writer());
-        return list.items;
+    pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
+        if (self.charge != null) {
+            allocator.free(self.charge.?);
+        }
+        if (self.element != null) {
+            allocator.free(self.element.?);
+        }
+        if (self.entry != null) {
+            allocator.free(self.entry.?);
+        }
+        allocator.free(self.name);
+        allocator.free(self.resName);
+    }
+};
+
+// zig fmt: off
+pub const RecordType = enum(u48) {
+    atom =   std.mem.readInt(u48, "ATOM  ", .little),
+    hetatm = std.mem.readInt(u48, "HETATM", .little),
+    term =   std.mem.readInt(u48, "TER   ", .little),
+};
+// zig fmt: on
+
+pub const Record = union(RecordType) {
+    atom: AtomRecord,
+    hetatm: AtomRecord,
+    term: TermRecord,
+
+    pub fn parse(
+        raw_line: []const u8,
+        tag: RecordType,
+        index: u32,
+        allocator: std.mem.Allocator,
+    ) !Record {
+        const line = Line.new(raw_line);
+        const record: Record = switch (tag) {
+            inline .atom, .hetatm => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try line.convertToAtomRecord(index, raw_line.len, allocator),
+            ),
+            .term => .{
+                .term = try line.convertToTermRecord(allocator),
+            },
+        };
+
+        return record;
     }
 
-    pub fn parse(line: []const u8, index: u32, allocator: std.mem.Allocator) !AtomRecord {
-        const len = line.len;
-        const parsedLine = Line.new(line);
-        const atom = try parsedLine.convertToAtomRecord(index, len, allocator);
-        return atom;
+    pub fn serial(self: Record) u32 {
+        return switch (self) {
+            .term => |payload| payload.serial,
+            .atom, .hetatm => |payload| payload.serial,
+        };
     }
 
     // this formatter allows for printing an atom from any print() method.
     // and when fmt == "json", it writes json.
     pub fn format(
-        self: AtomRecord,
+        self: Record,
         comptime fmt: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
@@ -170,19 +171,11 @@ pub const AtomRecord = struct {
         }
     }
 
-    pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
-        if (self.charge != null) {
-            allocator.free(self.charge.?);
+    pub fn free(self: *Record, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .atom, .hetatm => |*atom| atom.free(allocator),
+            .term => |*ter| ter.free(allocator),
         }
-        if (self.element != null) {
-            allocator.free(self.element.?);
-        }
-        if (self.entry != null) {
-            allocator.free(self.entry.?);
-        }
-        allocator.free(self.name);
-        allocator.free(self.record);
-        allocator.free(self.resName);
     }
 };
 
@@ -224,19 +217,17 @@ const Line = extern struct {
     }
 
     fn convertToTermRecord(self: *const Line, allocator: std.mem.Allocator) !TermRecord {
-        var ter: TermRecord = TermRecord{};
-        ter.record = try allocator.dupe(u8, strings.removeSpaces(&self.record));
-        ter.serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10);
-        ter.resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName));
-        ter.chainID = self.chainID[0];
-        ter.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
-        ter.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
-        return ter;
+        return .{
+            .serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10),
+            .resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName)),
+            .chainID = self.chainID[0],
+            .resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10),
+            .iCode = if (self.iCode[0] == 32) null else self.iCode[0],
+        };
     }
 
     fn convertToAtomRecord(self: *const Line, serialIndex: u32, len: usize, allocator: std.mem.Allocator) !AtomRecord {
         var atom: AtomRecord = AtomRecord{};
-        atom.record = try allocator.dupe(u8, strings.removeSpaces(&self.record));
         atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
         atom.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));
         atom.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
@@ -288,7 +279,6 @@ test "convert to atoms" {
     try testing.expectEqualStrings("      1UBQ", &parsedLine._space4);
     var atom = try parsedLine.convertToAtomRecord(1, line.len, testalloc);
     defer atom.free(testalloc);
-    try testing.expectEqualStrings("ATOM", atom.record);
     try expectEqual(17, atom.serial);
     try testing.expectEqualStrings("NE2", atom.name);
     try testing.expectEqualStrings("GLN", atom.resName);
@@ -321,7 +311,6 @@ test "convert to atoms drude" {
     try testing.expectEqualStrings("      PROA", &parsedLine._space4);
     var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
     defer atom.free(testalloc);
-    try testing.expectEqualStrings("ATOM", atom.record);
     try expectEqual(1, atom.serial);
     try testing.expectEqualStrings("N", atom.name);
     try testing.expectEqualStrings("MET", atom.resName);
@@ -366,7 +355,6 @@ test "convert to atoms multi-line" {
     }
     try expectEqual(2, atoms.items.len);
     for (atoms.items) |atom| {
-        try testing.expectEqualStrings("ATOM", atom.record);
         try expectEqual(1, atom.serial);
         try testing.expectEqualStrings("N", atom.name);
         try testing.expectEqualStrings("MET", atom.resName);
@@ -385,10 +373,9 @@ test "convert to atoms multi-line" {
 
 test "toJson" {
     const line = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
-    const parsedLine = Line.new(line);
-    var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
-    defer atom.free(testalloc);
+    var record = try Record.parse(line, .atom, 0, testalloc);
+    defer record.free(testalloc);
 
     // use a format specifier to print json. yet another way to avoid allocting :^)
-    std.debug.print("\n{json}\n", .{atom});
+    std.debug.print("\n{json}\n", .{record});
 }

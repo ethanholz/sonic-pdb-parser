@@ -14,6 +14,14 @@ pub fn build(b: *std.Build) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+    _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
+    const lib = b.addStaticLibrary(.{
+        .name = "sonic",
+        .root_source_file = .{ .path = "src/records.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(lib);
 
     const exe = b.addExecutable(.{
         .name = "sonic-pdb-parser",
@@ -23,8 +31,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
-    _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

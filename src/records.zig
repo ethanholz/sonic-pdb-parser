@@ -16,9 +16,11 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(R
     var buf: [90]u8 = undefined;
     const end = std.mem.readInt(u48, "END   ", .little);
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        if (line.len < 6) continue;
         const tag_int = std.mem.readInt(u48, line[0..6], .little);
         if (tag_int == end) break;
         const tag = std.meta.intToEnum(RecordType, tag_int) catch continue;
+        // TODO: Add switch to handle connect records
         const record = try Record.parse(line, tag, recordNumber, allocator);
         recordNumber = record.serial();
         try records.append(record);
@@ -54,6 +56,14 @@ pub const RunRecord = struct {
         }
         _ = try file.write("\n");
     }
+};
+
+pub const ConnectRecord = struct {
+    serial: u32 = undefined,
+    serial1: u32 = undefined,
+    serial2: ?u32 = null,
+    serial3: ?u32 = null,
+    serial4: ?u32 = null,
 };
 
 pub const TermRecord = struct {
@@ -102,9 +112,10 @@ pub const AtomRecord = struct {
 
 // zig fmt: off
 pub const RecordType = enum(u48) {
-    atom =   std.mem.readInt(u48, "ATOM  ", .little),
-    hetatm = std.mem.readInt(u48, "HETATM", .little),
-    term =   std.mem.readInt(u48, "TER   ", .little),
+    atom =    std.mem.readInt(u48, "ATOM  ", .little),
+    hetatm =  std.mem.readInt(u48, "HETATM", .little),
+    term =    std.mem.readInt(u48, "TER   ", .little),
+    connect = std.mem.readInt(u48, "CONECT", .little),
 };
 // zig fmt: on
 
@@ -112,6 +123,7 @@ pub const Record = union(RecordType) {
     atom: AtomRecord,
     hetatm: AtomRecord,
     term: TermRecord,
+    connect: ConnectRecord,
 
     pub fn parse(
         raw_line: []const u8,
@@ -119,7 +131,14 @@ pub const Record = union(RecordType) {
         index: u32,
         allocator: std.mem.Allocator,
     ) !Record {
-        const line = Line.new(raw_line);
+        var cl: *const ConnectLine = undefined;
+        var line: *const Line = undefined;
+        if (std.mem.eql(u8, raw_line[0..6], "CONECT")) {
+            cl = ConnectLine.new(raw_line);
+        } else {
+            line = Line.new(raw_line);
+        }
+        // const line = Line.new(raw_line);
         const record: Record = switch (tag) {
             inline .atom, .hetatm => |t| @unionInit(
                 Record,
@@ -128,6 +147,9 @@ pub const Record = union(RecordType) {
             ),
             .term => .{
                 .term = try line.convertToTermRecord(allocator),
+            },
+            .connect => .{
+                .connect = try cl.convertToConnectRecord(raw_line.len),
             },
         };
 
@@ -138,6 +160,7 @@ pub const Record = union(RecordType) {
         return switch (self) {
             .term => |payload| payload.serial,
             .atom, .hetatm => |payload| payload.serial,
+            .connect => |payload| payload.serial,
         };
     }
 
@@ -175,9 +198,51 @@ pub const Record = union(RecordType) {
         switch (self.*) {
             .atom, .hetatm => |*atom| atom.free(allocator),
             .term => |*ter| ter.free(allocator),
+            .connect => return,
         }
     }
 };
+
+const ConnectLine = extern struct {
+    record: [6]u8,
+    serial: [5]u8,
+    serial1: [5]u8,
+    serial2: [5]u8,
+    serial3: [5]u8,
+    serial4: [5]u8,
+
+    fn new(line: []const u8) *const ConnectLine {
+        return @ptrCast(line.ptr);
+    }
+    fn convertToConnectRecord(self: *const ConnectLine, len: usize) !ConnectRecord {
+        var connect: ConnectRecord = ConnectRecord{};
+        connect.serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10);
+        if (len > 11) {
+            connect.serial1 = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial1), 10);
+            if (len > 16) {
+                connect.serial2 = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial2), 10) catch null;
+            }
+            if (len > 21) {
+                connect.serial3 = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial3), 10) catch null;
+            }
+            if (len > 26) {
+                connect.serial4 = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial4), 10) catch null;
+            }
+        }
+        return connect;
+    }
+};
+
+test "Connect Line" {
+    const line = "CONECT  413  412  414                                                           ";
+    var parseLine = ConnectLine.new(line);
+    const record = try parseLine.convertToConnectRecord(line.len);
+    try expectEqual(413, record.serial);
+    try expectEqual(412, record.serial1);
+    try expectEqual(414, record.serial2);
+    try expectEqual(null, record.serial3);
+    try expectEqual(null, record.serial4);
+}
 
 // i've made this an extern struct which has well defined memory layout
 // unlike normal zig structs.  i did this because all its fields are arrays

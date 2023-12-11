@@ -4,8 +4,6 @@
     // In a future version of Zig it will be used for package deduplication.
     .version = "0.0.0",
     .paths = .{
-        "",
-        // For example...
         "build.zig",
         "build.zig.zon",
         "src/records.zig",

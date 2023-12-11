@@ -86,31 +86,17 @@ pub const AtomRecord = struct {
     entry: ?string = null,
 
     pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
-        const fields = @typeInfo(AtomRecord).Struct.fields;
-        inline for (fields) |field| {
-            const field_type = field.type;
-            if (field_type == std.builtin.Type.Optional) {
-                const child = @typeInfo(field_type).Optional.child;
-                if (child == std.builtin.Type.Array) {
-                    const child_type = @typeInfo(child).Array.child;
-                    if (child_type == std.builtin.Type.Uint8) {
-                        const data = @field(self, field.name);
-                        if (data != null) {
-                            allocator.free(data.?);
-                        }
-                    }
-                }
-            }
-            if (field_type == std.builtin.Type.Array) {
-                const child_type = @typeInfo(field_type).Array.child;
-                if (child_type == std.builtin.Type.Uint8) {
-                    const data = @field(self, field.name);
-                    if (data != null) {
-                        allocator.free(data);
-                    }
-                }
-            }
+        if (self.charge != null) {
+            allocator.free(self.charge.?);
         }
+        if (self.element != null) {
+            allocator.free(self.element.?);
+        }
+        if (self.entry != null) {
+            allocator.free(self.entry.?);
+        }
+        allocator.free(self.name);
+        allocator.free(self.resName);
     }
 };
 

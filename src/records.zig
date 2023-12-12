@@ -110,12 +110,17 @@ pub const AtomRecord = struct {
     }
 };
 
+pub const ModelRecord = struct {
+    serial: u32 = undefined,
+};
+
 // zig fmt: off
 pub const RecordType = enum(u48) {
     atom =    std.mem.readInt(u48, "ATOM  ", .little),
     hetatm =  std.mem.readInt(u48, "HETATM", .little),
     term =    std.mem.readInt(u48, "TER   ", .little),
     connect = std.mem.readInt(u48, "CONECT", .little),
+    model =   std.mem.readInt(u48, "MODEL ", .little),
 };
 // zig fmt: on
 
@@ -124,6 +129,7 @@ pub const Record = union(RecordType) {
     hetatm: AtomRecord,
     term: TermRecord,
     connect: ConnectRecord,
+    model: ModelRecord,
 
     pub fn parse(
         raw_line: []const u8,
@@ -133,8 +139,11 @@ pub const Record = union(RecordType) {
     ) !Record {
         var cl: *const ConnectLine = undefined;
         var line: *const Line = undefined;
+        var ml: *const ModelLine = undefined;
         if (std.mem.eql(u8, raw_line[0..6], "CONECT")) {
             cl = ConnectLine.new(raw_line);
+        } else if (std.mem.eql(u8, raw_line[0..6], "MODEL ")) {
+            ml = ModelLine.new(raw_line);
         } else {
             line = Line.new(raw_line);
         }
@@ -147,6 +156,9 @@ pub const Record = union(RecordType) {
             ),
             .term => .{
                 .term = try line.convertToTermRecord(allocator),
+            },
+            .model => .{
+                .model = try ml.convertToModelRecord(),
             },
             .connect => .{
                 .connect = try cl.convertToConnectRecord(raw_line.len),
@@ -161,6 +173,7 @@ pub const Record = union(RecordType) {
             .term => |payload| payload.serial,
             .atom, .hetatm => |payload| payload.serial,
             .connect => |payload| payload.serial,
+            .model => |payload| payload.serial,
         };
     }
 
@@ -198,8 +211,24 @@ pub const Record = union(RecordType) {
         switch (self.*) {
             .atom, .hetatm => |*atom| atom.free(allocator),
             .term => |*ter| ter.free(allocator),
-            .connect => return,
+            .model, .connect => return,
         }
+    }
+};
+
+const ModelLine = extern struct {
+    record: [6]u8,
+    _space: [5]u8,
+    serial: [4]u8,
+
+    fn new(line: []const u8) *const ModelLine {
+        return @ptrCast(line.ptr);
+    }
+
+    fn convertToModelRecord(self: *const ModelLine) !ModelRecord {
+        return .{
+            .serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10),
+        };
     }
 };
 

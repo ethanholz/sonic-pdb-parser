@@ -60,8 +60,9 @@ pub fn main() !void {
         var bufreader = std.io.bufferedReader(file.reader());
         var atoms = try PDBReader(bufreader.reader(), allocator);
         defer atoms.deinit();
+        const writer = std.io.getStdOut().writer();
         for (atoms.items) |*atom| {
-            std.debug.print("{json}\n", .{atom});
+            try writer.print("{json}\n", .{atom});
             atom.free(allocator);
         }
         std.os.exit(0);

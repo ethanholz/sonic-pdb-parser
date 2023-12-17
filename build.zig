@@ -99,4 +99,14 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = lib.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc",
+    });
+
+    const docs_step = b.step("docs", "Generate docs");
+    docs_step.dependOn(&install_docs.step);
+    docs_step.dependOn(&lib.step);
 }

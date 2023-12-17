@@ -14,14 +14,38 @@ pub fn build(b: *std.Build) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
-    _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
-    const lib = b.addStaticLibrary(.{
-        .name = "sonic",
+
+    _ = b.addModule("sonic-fasta", .{ .source_file = .{ .path = "src/fasta.zig" } });
+    const sonic_fasta = b.addStaticLibrary(.{
+        .name = "sonic-fasta",
         .root_source_file = .{ .path = "src/records.zig" },
         .target = target,
         .optimize = optimize,
     });
+    b.installArtifact(sonic_fasta);
+
+    _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
+    const lib = b.addStaticLibrary(.{
+        .name = "sonic",
+        .root_source_file = .{ .path = "src/records.zig" },
+        .main_pkg_path = .{ .path = "src/" },
+        .target = target,
+        .optimize = optimize,
+    });
     b.installArtifact(lib);
+
+    const fasta = b.addExecutable(.{
+        .name = "pdb2fasta",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
+        .root_source_file = .{ .path = "src/fasta.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    // This declares intent for the executable to be installed into the
+    // standard location when the user invokes the "install" step (the default
+    // step when running `zig build`).
+    b.installArtifact(fasta);
 
     const exe = b.addExecutable(.{
         .name = "sonic-pdb-parser",

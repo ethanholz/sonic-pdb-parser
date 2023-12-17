@@ -168,6 +168,40 @@ pub const Record = union(RecordType) {
         return record;
     }
 
+    /// Returns a record's chain ID if it has one
+    pub fn chainID(self: Record) ?char {
+        return switch (self) {
+            .atom, .hetatm => |payload| payload.chainID,
+            else => null,
+        };
+    }
+
+    /// Returns a record's alternate location if it has one
+    pub fn altLoc(self: Record) ?char {
+        return switch (self) {
+            .atom, .hetatm => |payload| payload.altLoc,
+            else => null,
+        };
+    }
+
+    /// Returns a record's element if it has one
+    pub fn name(self: Record) ?string {
+        return switch (self) {
+            .atom, .hetatm => |payload| payload.name,
+            else => null,
+        };
+    }
+
+    /// Returns a record's residue name if it has one
+    pub fn resName(self: Record) ?string {
+        return switch (self) {
+            .atom, .hetatm => |payload| payload.resName,
+            .term => |payload| payload.resName,
+            else => null,
+        };
+    }
+
+    /// Returns a record's serial number
     pub fn serial(self: Record) u32 {
         return switch (self) {
             .term => |payload| payload.serial,

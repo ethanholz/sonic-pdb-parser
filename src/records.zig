@@ -7,7 +7,7 @@ const strings = @import("strings.zig");
 const string = []const u8;
 const char = u8;
 
-// Reads in a PDB file and converts them to an ArrayList of records
+/// Reads in a PDB file and converts them to an ArrayList of records
 pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(Record) {
     var records = std.ArrayList(Record).init(allocator);
     var recordNumber: u32 = 0;
@@ -28,8 +28,8 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(R
     return records;
 }
 
-/// Holds the performance data for a single run
-/// Also handle writing the data to a csv file
+/// Holds the performance data for a single run.
+/// Also handle writing the data to a CSV file
 pub const RunRecord = struct {
     /// The run number
     run: u64,
@@ -58,6 +58,7 @@ pub const RunRecord = struct {
     }
 };
 
+/// Represents a CONECT record
 pub const ConnectRecord = struct {
     serial: u32 = undefined,
     serial1: u32 = undefined,
@@ -66,6 +67,7 @@ pub const ConnectRecord = struct {
     serial4: ?u32 = null,
 };
 
+/// Represents a TER record
 pub const TermRecord = struct {
     serial: u32,
     resName: string,
@@ -78,6 +80,7 @@ pub const TermRecord = struct {
     }
 };
 
+/// Represents an ATOM or HETATM record
 pub const AtomRecord = struct {
     serial: u32 = undefined,
     name: string = undefined,
@@ -95,6 +98,7 @@ pub const AtomRecord = struct {
     charge: ?string = null,
     entry: ?string = null,
 
+    /// Frees all the strings in the struct
     pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
         if (self.charge != null) {
             allocator.free(self.charge.?);
@@ -110,11 +114,13 @@ pub const AtomRecord = struct {
     }
 };
 
+/// Represents a MODEL record
 pub const ModelRecord = struct {
     serial: u32 = undefined,
 };
 
 // zig fmt: off
+/// An enum derived of possible records in a PDB file
 pub const RecordType = enum(u48) {
     atom =    std.mem.readInt(u48, "ATOM  ", .little),
     hetatm =  std.mem.readInt(u48, "HETATM", .little),
@@ -124,13 +130,20 @@ pub const RecordType = enum(u48) {
 };
 // zig fmt: on
 
+/// A union of all possible records in a PDB file
 pub const Record = union(RecordType) {
+    /// An ATOM record
     atom: AtomRecord,
+    /// A HETATM record
     hetatm: AtomRecord,
+    /// A TER record
     term: TermRecord,
+    /// A CONECT record
     connect: ConnectRecord,
+    /// A MODEL record
     model: ModelRecord,
 
+    /// Parses a line into a record
     pub fn parse(
         raw_line: []const u8,
         tag: RecordType,
@@ -211,8 +224,7 @@ pub const Record = union(RecordType) {
         };
     }
 
-    // this formatter allows for printing an atom from any print() method.
-    // and when fmt == "json", it writes json.
+    /// This formatter allows for printing an atom from any print() method. When {json} is passed, it prints json.
     pub fn format(
         self: Record,
         comptime fmt: []const u8,
@@ -241,6 +253,7 @@ pub const Record = union(RecordType) {
         }
     }
 
+    /// Calls free on a record if it has any allocated memory
     pub fn free(self: *Record, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .atom, .hetatm => |*atom| atom.free(allocator),

@@ -320,13 +320,6 @@ test "Connect Line" {
     try expectEqual(null, record.serial4);
 }
 
-// i've made this an extern struct which has well defined memory layout
-// unlike normal zig structs.  i did this because all its fields are arrays
-// which are extern compatible.  this means you can bitcast to/from an array.
-// however when i tried that i noticed the test data was shorter than 80 bytes
-// and caused the following error.  i've left the commented out code below
-// which led to this.  my solution was to pointer cast.  this prevents the oob
-// read and will likely be a little faster, returning 8 bytes vs 80 bytes.
 const Line = extern struct {
     record: [6]u8,
     serial: [5]u8,

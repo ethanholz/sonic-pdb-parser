@@ -397,9 +397,15 @@ const AnisotropicLine = extern struct {
         anisotropic.u02 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u02), 10);
         anisotropic.u12 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u12), 10);
         if (len > 76) {
-            anisotropic.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
+            const element = strings.removeSpaces(&self.element);
+            if (element.len != 0) {
+                anisotropic.element = try allocator.dupe(u8, element);
+            }
             if (len == 80) {
-                anisotropic.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
+                const charge = strings.removeSpaces(&self.charge);
+                if (charge.len != 0) {
+                    anisotropic.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
+                }
             }
         }
         return anisotropic;

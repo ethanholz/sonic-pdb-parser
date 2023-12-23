@@ -114,6 +114,36 @@ pub const AtomRecord = struct {
     }
 };
 
+pub const AnisotropicRecord = struct {
+    serial: u32 = undefined,
+    name: string = undefined,
+    altLoc: ?char = null,
+    resName: string = undefined,
+    chainID: char = undefined,
+    resSeq: u16 = undefined,
+    iCode: ?char = null,
+    u00: i32 = undefined,
+    u11: i32 = undefined,
+    u22: i32 = undefined,
+    u01: i32 = undefined,
+    u02: i32 = undefined,
+    u12: i32 = undefined,
+    element: ?string = null,
+    charge: ?string = null,
+
+    /// Frees all the strings in the struct
+    pub fn free(self: *AnisotropicRecord, allocator: std.mem.Allocator) void {
+        if (self.charge != null) {
+            allocator.free(self.charge.?);
+        }
+        if (self.element != null) {
+            allocator.free(self.element.?);
+        }
+        allocator.free(self.name);
+        allocator.free(self.resName);
+    }
+};
+
 /// Represents a MODEL record
 pub const ModelRecord = struct {
     serial: u32 = undefined,
@@ -127,6 +157,8 @@ pub const RecordType = enum(u48) {
     term =    std.mem.readInt(u48, "TER   ", .little),
     connect = std.mem.readInt(u48, "CONECT", .little),
     model =   std.mem.readInt(u48, "MODEL ", .little),
+    anisou = std.mem.readInt(u48, "ANISOU", .little),
+    endmdl = std.mem.readInt(u48, "ENDMDL", .little),
 };
 // zig fmt: on
 
@@ -142,6 +174,10 @@ pub const Record = union(RecordType) {
     connect: ConnectRecord,
     /// A MODEL record
     model: ModelRecord,
+    /// An ANISOU record
+    anisou: AnisotropicRecord,
+    /// An ENDMDL record
+    endmdl: void,
 
     /// Parses a line into a record
     pub fn parse(
@@ -153,14 +189,18 @@ pub const Record = union(RecordType) {
         var cl: *const ConnectLine = undefined;
         var line: *const Line = undefined;
         var ml: *const ModelLine = undefined;
+        var al: *const AnisotropicLine = undefined;
         if (std.mem.eql(u8, raw_line[0..6], "CONECT")) {
             cl = ConnectLine.new(raw_line);
         } else if (std.mem.eql(u8, raw_line[0..6], "MODEL ")) {
             ml = ModelLine.new(raw_line);
+        } else if (std.mem.eql(u8, raw_line[0..6], "ANISOU")) {
+            al = AnisotropicLine.new(raw_line);
+        } else if (std.mem.eql(u8, raw_line[0..6], "ENDMDL")) {
+            return .endmdl;
         } else {
             line = Line.new(raw_line);
         }
-        // const line = Line.new(raw_line);
         const record: Record = switch (tag) {
             inline .atom, .hetatm => |t| @unionInit(
                 Record,
@@ -176,6 +216,10 @@ pub const Record = union(RecordType) {
             .connect => .{
                 .connect = try cl.convertToConnectRecord(raw_line.len),
             },
+            .anisou => .{
+                .anisou = try al.convertToAnisotropicRecord(index, raw_line.len, allocator),
+            },
+            .endmdl => @panic("Should not be here"),
         };
 
         return record;
@@ -185,6 +229,7 @@ pub const Record = union(RecordType) {
     pub fn chainID(self: Record) ?char {
         return switch (self) {
             .atom, .hetatm => |payload| payload.chainID,
+            .anisou => |payload| payload.chainID,
             else => null,
         };
     }
@@ -193,6 +238,7 @@ pub const Record = union(RecordType) {
     pub fn altLoc(self: Record) ?char {
         return switch (self) {
             .atom, .hetatm => |payload| payload.altLoc,
+            .anisou => |payload| payload.altLoc,
             else => null,
         };
     }
@@ -201,6 +247,7 @@ pub const Record = union(RecordType) {
     pub fn name(self: Record) ?string {
         return switch (self) {
             .atom, .hetatm => |payload| payload.name,
+            .anisou => |payload| payload.name,
             else => null,
         };
     }
@@ -210,6 +257,7 @@ pub const Record = union(RecordType) {
         return switch (self) {
             .atom, .hetatm => |payload| payload.resName,
             .term => |payload| payload.resName,
+            .anisou => |payload| payload.resName,
             else => null,
         };
     }
@@ -220,7 +268,9 @@ pub const Record = union(RecordType) {
             .term => |payload| payload.serial,
             .atom, .hetatm => |payload| payload.serial,
             .connect => |payload| payload.serial,
+            .anisou => |payload| payload.serial,
             .model => |payload| payload.serial,
+            else => 0,
         };
     }
 
@@ -234,21 +284,40 @@ pub const Record = union(RecordType) {
         if (comptime std.mem.eql(u8, fmt, "json")) {
             _ = try std.json.stringify(self, .{}, writer);
         } else {
-            const fields = @typeInfo(AtomRecord).Struct.fields;
-            inline for (fields) |field| {
-                const fmt2 = switch (@typeInfo(field.type)) {
-                    .Optional => |info| if (comptime std.meta.trait.isZigString(info.child))
-                        "{?s}"
-                    else
-                        "{?}",
-                    .Float => "{d:.3}",
-                    .Int => "{}",
-                    else => if (comptime std.meta.trait.isZigString(field.type))
-                        "{s}"
-                    else
-                        "{}",
-                };
-                try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(self, field.name) });
+            const uInfo = @typeInfo(@TypeOf(self)).Union;
+            if (uInfo.tag_type) |UnionTagType| {
+                inline for (uInfo.fields) |uField| {
+                    if (self == @field(UnionTagType, uField.name)) {
+                        switch (@typeInfo(uField.type)) {
+                            .Void => try writer.print("{s}", .{uField.name}),
+                            .Struct => {
+                                const fields = @typeInfo(uField.type).Struct.fields;
+                                inline for (fields) |field| {
+                                    const fmt2 = switch (@typeInfo(field.type)) {
+                                        .Optional => |optional| switch (@typeInfo(optional.child)) {
+                                            .Pointer => |ptr_info| switch (ptr_info.size) {
+                                                .Slice, .Many => "{?s}",
+                                                else => "{?}",
+                                            },
+                                            else => "{?}",
+                                        },
+                                        .Float => "{d:.3}",
+                                        .Int => "{}",
+                                        .Pointer => |ptr_info| switch (ptr_info.size) {
+                                            .Slice, .Many => "{s}",
+                                            else => "{}",
+                                        },
+                                        // .Pointer => |ptr| if (ptr.child == .Slice) "{s}",
+                                        else => "{}",
+                                    };
+                                    try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(@field(self, uField.name), field.name) });
+                                    // try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(uField.type, field.name) });
+                                }
+                            },
+                            else => try writer.print("{?}", .{@field(self, uField.name)}),
+                        }
+                    }
+                }
             }
         }
     }
@@ -258,7 +327,8 @@ pub const Record = union(RecordType) {
         switch (self.*) {
             .atom, .hetatm => |*atom| atom.free(allocator),
             .term => |*ter| ter.free(allocator),
-            .model, .connect => return,
+            .anisou => |*anisou| anisou.free(allocator),
+            .model, .connect, .endmdl => return,
         }
     }
 };
@@ -278,6 +348,82 @@ const ModelLine = extern struct {
         };
     }
 };
+
+const AnisotropicLine = extern struct {
+    record: [6]u8,
+    serial: [5]u8,
+    _space: [1]u8,
+    name: [4]u8,
+    altLoc: [1]u8,
+    resName: [3]u8,
+    _space2: [1]u8,
+    chainID: [1]u8,
+    resSeq: [4]u8,
+    iCode: [1]u8,
+    _space3: [1]u8,
+    u00: [7]u8,
+    u11: [7]u8,
+    u22: [7]u8,
+    u01: [7]u8,
+    u02: [7]u8,
+    u12: [7]u8,
+    _space4: [6]u8,
+    element: [2]u8,
+    charge: [2]u8,
+
+    fn new(line: []const u8) *const AnisotropicLine {
+        return @ptrCast(line.ptr);
+    }
+
+    fn convertToAnisotropicRecord(
+        self: *const AnisotropicLine,
+        serialIndex: u32,
+        len: usize,
+        allocator: std.mem.Allocator,
+    ) !AnisotropicRecord {
+        var anisotropic: AnisotropicRecord = AnisotropicRecord{};
+        // We don't need to increment as this often aligns with the atom serial
+        anisotropic.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex;
+        anisotropic.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));
+        anisotropic.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
+        anisotropic.resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName));
+        anisotropic.chainID = self.chainID[0];
+        anisotropic.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
+        anisotropic.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
+        anisotropic.u00 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u00), 10);
+        anisotropic.u11 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u11), 10);
+        anisotropic.u22 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u22), 10);
+        anisotropic.u01 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u01), 10);
+        anisotropic.u02 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u02), 10);
+        anisotropic.u12 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u12), 10);
+        if (len > 76) {
+            anisotropic.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
+            if (len == 80) {
+                anisotropic.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
+            }
+        }
+        return anisotropic;
+    }
+};
+
+test "Anisotropic Line" {
+    const line = "ANISOU    1  N   MET A   1      688   1234    806    -19    -49    178       N  ";
+    var parseLine = AnisotropicLine.new(line);
+    var record = try parseLine.convertToAnisotropicRecord(1, line.len, testalloc);
+    defer record.free(testalloc);
+    try expectEqual(1, record.serial);
+    try testing.expectEqualStrings("N", record.name);
+    try testing.expectEqualStrings("MET", record.resName);
+    try expectEqual('A', record.chainID);
+    try expectEqual(1, record.resSeq);
+    try expectEqual(688, record.u00);
+    try expectEqual(1234, record.u11);
+    try expectEqual(806, record.u22);
+    try expectEqual(-19, record.u01);
+    try expectEqual(-49, record.u02);
+    try expectEqual(178, record.u12);
+    try testing.expectEqualStrings("N", record.element.?);
+}
 
 const ConnectLine = extern struct {
     record: [6]u8,
@@ -379,9 +525,15 @@ const Line = extern struct {
             atom.entry = try allocator.dupe(u8, entry);
         }
         if (len > 76) {
-            atom.element = try allocator.dupe(u8, strings.removeSpaces(&self.element));
+            const element = strings.removeSpaces(&self.element);
+            if (element.len != 0) {
+                atom.element = try allocator.dupe(u8, element);
+            }
             if (len == 80) {
-                atom.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
+                const charge = strings.removeSpaces(&self.charge);
+                if (charge.len != 0) {
+                    atom.charge = try allocator.dupe(u8, charge);
+                }
             }
         }
         return atom;

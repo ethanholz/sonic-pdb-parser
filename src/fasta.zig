@@ -86,6 +86,7 @@ pub fn pdbToFasta(allocator: std.mem.Allocator, lines: []const u8) ![]const u8 {
         var record = try Record.parse(line, tag, recordNumber, allocator);
         defer record.free(allocator);
         recordNumber = record.serial();
+        if (record == .endmdl) break;
         try handleRecord(writer, record, &prevChainID);
     }
     return try builder.toOwnedSlice();
@@ -97,6 +98,7 @@ pub fn recordsToFasta(allocator: std.mem.Allocator, input: std.ArrayList(Record)
     const writer = builder.writer();
     var prevChainID: u8 = 0;
     for (input.items) |record| {
+        if (record == .endmdl) break;
         try handleRecord(writer, record, &prevChainID);
     }
     return try builder.toOwnedSlice();
@@ -159,6 +161,7 @@ pub fn main() !void {
     var atoms = try records.PDBReader(bufreader.reader(), allocator);
     defer atoms.deinit();
     const fasta = try std.fs.cwd().createFile(parsedArgs.output, .{});
+    // const converted = try pdbToFasta(allocator, atoms);
     const converted = try recordsToFasta(allocator, atoms);
     _ = try fasta.writeAll(converted);
     for (atoms.items) |*atom| {

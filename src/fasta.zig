@@ -65,6 +65,8 @@ fn handleRecord(writer: anytype, record: Record, prevChainID: *u8) !void {
                 prevChainID.* = chainID.?;
                 try writer.print(">pdb:{c}\n", .{chainID.?});
             }
+            const char = aa3to1(record.resName().?);
+            if (char == 'X') std.debug.print("Unknown amino acid: {s}\n", .{record.resName().?});
             try writer.print("{c}", .{aa3to1(record.resName().?)});
         },
         else => {},
@@ -85,8 +87,8 @@ pub fn pdbToFasta(allocator: std.mem.Allocator, lines: []const u8) ![]const u8 {
         const tag = std.meta.intToEnum(records.RecordType, tag_int) catch continue;
         var record = try Record.parse(line, tag, recordNumber, allocator);
         defer record.free(allocator);
-        recordNumber = record.serial();
         if (record == .endmdl) break;
+        recordNumber = record.serial();
         try handleRecord(writer, record, &prevChainID);
     }
     return try builder.toOwnedSlice();
@@ -157,15 +159,14 @@ pub fn main() !void {
 
     const file = try std.fs.cwd().openFile(parsedArgs.fileName, .{});
     defer file.close();
-    var bufreader = std.io.bufferedReader(file.reader());
-    var atoms = try records.PDBReader(bufreader.reader(), allocator);
-    defer atoms.deinit();
     const fasta = try std.fs.cwd().createFile(parsedArgs.output, .{});
-    // const converted = try pdbToFasta(allocator, atoms);
-    const converted = try recordsToFasta(allocator, atoms);
+    defer fasta.close();
+
+    var bufreader = std.io.bufferedReader(file.reader());
+    const atoms = try bufreader.reader().readAllAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(atoms);
+
+    const converted = try pdbToFasta(allocator, atoms);
     _ = try fasta.writeAll(converted);
-    for (atoms.items) |*atom| {
-        atom.free(allocator);
-    }
     allocator.free(converted);
 }

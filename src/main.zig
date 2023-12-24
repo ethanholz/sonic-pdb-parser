@@ -19,6 +19,7 @@ const Args = struct {
     runs: u64 = 100,
     fileName: string = "",
     output: string = "times.csv",
+    json: bool = false,
 
     pub fn parseArgs(argsList: [][:0]u8) !Args {
         var args = Args{};
@@ -32,6 +33,7 @@ const Args = struct {
             if (strings.equals(arg, "-o")) {
                 args.output = @as(string, argsList[idx + 1]);
             }
+            if (strings.equals(arg, "--json")) args.json = true;
             if (strings.equals(arg, "-h")) {
                 std.debug.print("Usage: exe -r <runs> -f <file> -o <output>\n", .{});
                 std.os.exit(0);
@@ -62,7 +64,11 @@ pub fn main() !void {
         defer atoms.deinit();
         const writer = std.io.getStdOut().writer();
         for (atoms.items) |*atom| {
-            try writer.print("{json}\n", .{atom});
+            if (parsedArgs.json) {
+                try writer.print("{json}\n", .{atom});
+            } else {
+                try writer.print("{}\n", .{atom});
+            }
             atom.free(allocator);
         }
         std.os.exit(0);

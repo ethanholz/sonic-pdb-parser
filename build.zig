@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
     _ = b.addModule("sonic-fasta", .{ .source_file = .{ .path = "src/fasta.zig" } });
     const sonic_fasta = b.addStaticLibrary(.{
         .name = "sonic-fasta",
-        .root_source_file = .{ .path = "src/records.zig" },
+        .root_source_file = .{ .path = "src/fasta.zig" },
         .target = target,
         .optimize = optimize,
     });

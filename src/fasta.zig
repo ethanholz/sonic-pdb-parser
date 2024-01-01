@@ -3,38 +3,31 @@ const records = @import("records.zig");
 const strings = @import("strings.zig");
 const Record = records.Record;
 
-// Handles conversion of 3 letter amino acid codes to 1 letter codes
-fn aa3to1(input: []const u8) u8 {
-    // zig fmt: off
-    const terms = [_][]const u8{
-        "ALAA",
-        "VALV",
-        "PHEF",
-        "PROP",
-        "METM",
-        "ILEI",
-        "LEUL",
-        "ASPD",
-        "GLUE",
-        "LYSK",
-        "ARGR",
-        "SERS",
-        "THRT",
-        "TYRY",
-        "HISH",
-        "CYSC",
-        "ASNN",
-        "GLNQ",
-        "TRPW",
-        "GLYG",
-    };
-    // zig fmt: on
-    inline for (terms) |term| {
-        if (std.mem.eql(u8, term[0..3], input)) {
-            return term[3];
-        }
-    }
-    return 'X';
+const newTerms = std.ComptimeStringMap(u8, .{
+    .{ "ALA", 'A' },
+    .{ "VAL", 'V' },
+    .{ "PHE", 'F' },
+    .{ "PRO", 'P' },
+    .{ "MET", 'M' },
+    .{ "ILE", 'I' },
+    .{ "LEU", 'L' },
+    .{ "ASP", 'D' },
+    .{ "GLU", 'E' },
+    .{ "LYS", 'K' },
+    .{ "ARG", 'R' },
+    .{ "SER", 'S' },
+    .{ "THR", 'T' },
+    .{ "TYR", 'Y' },
+    .{ "HIS", 'H' },
+    .{ "CYS", 'C' },
+    .{ "ASN", 'N' },
+    .{ "GLN", 'Q' },
+    .{ "TRP", 'W' },
+    .{ "GLY", 'G' },
+});
+
+pub inline fn aa3to1(input: []const u8) u8 {
+    return newTerms.get(input) orelse 'X';
 }
 
 test "aa3to1" {

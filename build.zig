@@ -16,23 +16,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     _ = b.addModule("sonic-fasta", .{ .source_file = .{ .path = "src/fasta.zig" } });
-    const sonic_fasta = b.addStaticLibrary(.{
-        .name = "sonic-fasta",
-        .root_source_file = .{ .path = "src/fasta.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(sonic_fasta);
 
     _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
-    const lib = b.addStaticLibrary(.{
-        .name = "sonic",
-        .root_source_file = .{ .path = "src/records.zig" },
-        .main_pkg_path = .{ .path = "src/" },
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(lib);
 
     const fasta = b.addExecutable(.{
         .name = "pdb2fasta",
@@ -100,13 +85,13 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
-    const install_docs = b.addInstallDirectory(.{
-        .source_dir = lib.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "doc",
-    });
+    // const install_docs = b.addInstallDirectory(.{
+    //     .source_dir = lib.getEmittedDocs(),
+    //     .install_dir = .prefix,
+    //     .install_subdir = "doc",
+    // });
 
-    const docs_step = b.step("docs", "Generate docs");
-    docs_step.dependOn(&install_docs.step);
-    docs_step.dependOn(&lib.step);
+    // const docs_step = b.step("docs", "Generate docs");
+    // docs_step.dependOn(&install_docs.step);
+    // docs_step.dependOn(&lib.step);
 }

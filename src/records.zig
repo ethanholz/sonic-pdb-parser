@@ -428,86 +428,7 @@ pub const Record = union(RecordType) {
     }
 };
 
-const ModelLine = extern struct {
-    record: [6]u8,
-    _space: [5]u8,
-    serial: [4]u8,
-
-    fn new(line: []const u8) *const ModelLine {
-        return @ptrCast(line.ptr);
-    }
-
-    fn convertToModelRecord(self: *const ModelLine) !ModelRecord {
-        return .{
-            .serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10),
-        };
-    }
-};
-
-const AnisotropicLine = extern struct {
-    record: [6]u8,
-    serial: [5]u8,
-    _space: [1]u8,
-    name: [4]u8,
-    altLoc: [1]u8,
-    resName: [3]u8,
-    _space2: [1]u8,
-    chainID: [1]u8,
-    resSeq: [4]u8,
-    iCode: [1]u8,
-    _space3: [1]u8,
-    u00: [7]u8,
-    u11: [7]u8,
-    u22: [7]u8,
-    u01: [7]u8,
-    u02: [7]u8,
-    u12: [7]u8,
-    _space4: [6]u8,
-    element: [2]u8,
-    charge: [2]u8,
-
-    fn new(line: []const u8) *const AnisotropicLine {
-        return @ptrCast(line.ptr);
-    }
-
-    fn convertToAnisotropicRecord(
-        self: *const AnisotropicLine,
-        serialIndex: u32,
-        len: usize,
-        allocator: std.mem.Allocator,
-    ) !AnisotropicRecord {
-        var anisotropic: AnisotropicRecord = AnisotropicRecord{};
-        // We don't need to increment as this often aligns with the atom serial
-        anisotropic.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex;
-        anisotropic.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));
-        anisotropic.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
-        anisotropic.resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName));
-        anisotropic.chainID = self.chainID[0];
-        anisotropic.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
-        anisotropic.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
-        anisotropic.u00 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u00), 10);
-        anisotropic.u11 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u11), 10);
-        anisotropic.u22 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u22), 10);
-        anisotropic.u01 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u01), 10);
-        anisotropic.u02 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u02), 10);
-        anisotropic.u12 = try std.fmt.parseInt(i32, strings.removeSpaces(&self.u12), 10);
-        if (len > 76) {
-            const element = strings.removeSpaces(&self.element);
-            if (element.len != 0) {
-                anisotropic.element = try allocator.dupe(u8, element);
-            }
-            if (len == 80) {
-                const charge = strings.removeSpaces(&self.charge);
-                if (charge.len != 0) {
-                    anisotropic.charge = try allocator.dupe(u8, strings.removeSpaces(&self.charge));
-                }
-            }
-        }
-        return anisotropic;
-    }
-};
-
-test "Anisotropic Line" {
+test "Anisotropic Record" {
     const line = "ANISOU    1  N   MET A   1      688   1234    806    -19    -49    178       N  ";
     var record = try AnisotropicRecord.new(line, testalloc);
     defer record.free(testalloc);
@@ -525,36 +446,6 @@ test "Anisotropic Line" {
     try testing.expectEqualStrings("N", record.element.?);
 }
 
-const ConnectLine = extern struct {
-    record: [6]u8,
-    serial: [5]u8,
-    serial1: [5]u8,
-    serial2: [5]u8,
-    serial3: [5]u8,
-    serial4: [5]u8,
-
-    fn new(line: []const u8) *const ConnectLine {
-        return @ptrCast(line.ptr);
-    }
-    fn convertToConnectRecord(self: *const ConnectLine, len: usize) !ConnectRecord {
-        var connect: ConnectRecord = ConnectRecord{};
-        connect.serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10);
-        if (len > 11) {
-            connect.serial1 = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial1), 10);
-            if (len > 16) {
-                connect.serial2 = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial2), 10) catch null;
-            }
-            if (len > 21) {
-                connect.serial3 = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial3), 10) catch null;
-            }
-            if (len > 26) {
-                connect.serial4 = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial4), 10) catch null;
-            }
-        }
-        return connect;
-    }
-};
-
 test "Connect Record" {
     const line = "CONECT  413  412  414                                                           ";
     const connectRecord = try ConnectRecord.new(line);
@@ -564,80 +455,6 @@ test "Connect Record" {
     try expectEqual(null, connectRecord.serial3);
     try expectEqual(null, connectRecord.serial4);
 }
-
-const Line = extern struct {
-    record: [6]u8,
-    serial: [5]u8,
-    _space: [1]u8,
-    name: [4]u8,
-    altLoc: [1]u8,
-    resName: [3]u8,
-    _space2: [1]u8,
-    chainID: [1]u8,
-    resSeq: [4]u8,
-    iCode: [1]u8,
-    _space3: [3]u8,
-    x: [8]u8,
-    y: [8]u8,
-    z: [8]u8,
-    occupancy: [6]u8,
-    tempFactor: [6]u8,
-    _space4: [10]u8,
-    element: [2]u8,
-    charge: [2]u8,
-
-    // i've left this in just to show what i might otherwise do.  if uncommented
-    // it will produce the following error
-    //   : error: thread 681909 panic: index out of bounds: index 80, len 76
-    // fn new(line: []const u8) Line {
-    //     return @bitCast(line[0..@sizeOf(Line)].*);
-    fn new(line: []const u8) *const Line {
-        return @ptrCast(line.ptr);
-    }
-
-    fn convertToTermRecord(self: *const Line, allocator: std.mem.Allocator) !TermRecord {
-        return .{
-            .serial = try std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10),
-            .resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName)),
-            .chainID = self.chainID[0],
-            .resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10),
-            .iCode = if (self.iCode[0] == 32) null else self.iCode[0],
-        };
-    }
-
-    fn convertToAtomRecord(self: *const Line, serialIndex: u32, len: usize, allocator: std.mem.Allocator) !AtomRecord {
-        var atom: AtomRecord = AtomRecord{};
-        atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(&self.serial), 10) catch serialIndex + 1;
-        atom.name = try allocator.dupe(u8, strings.removeSpaces(&self.name));
-        atom.altLoc = if (self.altLoc[0] == 32) null else self.altLoc[0];
-        atom.resName = try allocator.dupe(u8, strings.removeSpaces(&self.resName));
-        atom.chainID = self.chainID[0];
-        atom.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(&self.resSeq), 10);
-        atom.iCode = if (self.iCode[0] == 32) null else self.iCode[0];
-        atom.x = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.x));
-        atom.y = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.y));
-        atom.z = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.z));
-        atom.occupancy = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.occupancy));
-        atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(&self.tempFactor));
-        const entry = strings.removeSpaces(&self._space4);
-        if (entry.len != 0) {
-            atom.entry = try allocator.dupe(u8, entry);
-        }
-        if (len > 76) {
-            const element = strings.removeSpaces(&self.element);
-            if (element.len != 0) {
-                atom.element = try allocator.dupe(u8, element);
-            }
-            if (len == 80) {
-                const charge = strings.removeSpaces(&self.charge);
-                if (charge.len != 0) {
-                    atom.charge = try allocator.dupe(u8, charge);
-                }
-            }
-        }
-        return atom;
-    }
-};
 
 // i noticed you weren't able to see the difference between strings.  this is why
 // i've used expectEqualStrings() below.  and this helper will also print out

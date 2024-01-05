@@ -20,6 +20,9 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(R
         const tag_int = std.mem.readInt(u48, line[0..6], .little);
         if (tag_int == end) break;
         const tag = std.meta.intToEnum(RecordType, tag_int) catch continue;
+        if (tag == .endmdl) {
+            continue;
+        }
         // TODO: Add switch to handle connect records
         const record = try Record.parse(line, tag, recordNumber, allocator);
         recordNumber = record.serial();
@@ -65,6 +68,22 @@ pub const ConnectRecord = struct {
     serial2: ?u32 = null,
     serial3: ?u32 = null,
     serial4: ?u32 = null,
+
+    pub fn new(raw_line: []const u8) !ConnectRecord {
+        var connect: ConnectRecord = ConnectRecord{};
+        connect.serial = try std.fmt.parseInt(u32, strings.removeSpaces(raw_line[6..11]), 10);
+        connect.serial1 = try std.fmt.parseInt(u32, strings.removeSpaces(raw_line[11..16]), 10);
+        if (raw_line.len > 21) {
+            connect.serial2 = std.fmt.parseInt(u32, strings.removeSpaces(raw_line[16..21]), 10) catch null;
+        }
+        if (raw_line.len > 26) {
+            connect.serial3 = std.fmt.parseInt(u32, strings.removeSpaces(raw_line[21..26]), 10) catch null;
+        }
+        if (raw_line.len > 31) {
+            connect.serial4 = std.fmt.parseInt(u32, strings.removeSpaces(raw_line[26..31]), 10) catch null;
+        }
+        return connect;
+    }
 };
 
 /// Represents a TER record
@@ -74,6 +93,16 @@ pub const TermRecord = struct {
     chainID: u8,
     resSeq: u16,
     iCode: ?u8,
+
+    pub fn new(raw_line: []const u8, allocator: std.mem.Allocator) !TermRecord {
+        return .{
+            .serial = try std.fmt.parseInt(u32, strings.removeSpaces(raw_line[6..11]), 10),
+            .resName = try allocator.dupe(u8, strings.removeSpaces(raw_line[17..20])),
+            .chainID = raw_line[21],
+            .resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(raw_line[22..26]), 10),
+            .iCode = if (raw_line[26] == 32) null else raw_line[26],
+        };
+    }
 
     pub fn free(self: *TermRecord, allocator: std.mem.Allocator) void {
         allocator.free(self.resName);
@@ -97,6 +126,39 @@ pub const AtomRecord = struct {
     element: ?string = null,
     charge: ?string = null,
     entry: ?string = null,
+
+    pub fn new(raw_line: []const u8, index: u32, allocator: std.mem.Allocator) !AtomRecord {
+        var atom: AtomRecord = AtomRecord{};
+        atom.serial = std.fmt.parseInt(u32, strings.removeSpaces(raw_line[6..11]), 10) catch index + 1;
+        atom.name = try allocator.dupe(u8, strings.removeSpaces(raw_line[12..16]));
+        atom.altLoc = if (raw_line[16] == 32) null else raw_line[16];
+        atom.resName = try allocator.dupe(u8, strings.removeSpaces(raw_line[17..20]));
+        atom.chainID = raw_line[21];
+        atom.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(raw_line[22..26]), 10);
+        atom.iCode = if (raw_line[26] == 32) null else raw_line[26];
+        atom.x = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[30..38]));
+        atom.y = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[38..46]));
+        atom.z = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[46..54]));
+        atom.occupancy = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[54..60]));
+        atom.tempFactor = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[60..66]));
+        const entry = strings.removeSpaces(raw_line[66..76]);
+        if (entry.len != 0) {
+            atom.entry = try allocator.dupe(u8, entry);
+        }
+        if (raw_line.len > 76) {
+            const element = strings.removeSpaces(raw_line[76..78]);
+            if (element.len != 0) {
+                atom.element = try allocator.dupe(u8, element);
+            }
+            if (raw_line.len == 80) {
+                const charge = strings.removeSpaces(raw_line[78..80]);
+                if (charge.len != 0) {
+                    atom.charge = try allocator.dupe(u8, charge);
+                }
+            }
+        }
+        return atom;
+    }
 
     /// Frees all the strings in the struct
     pub fn free(self: *AtomRecord, allocator: std.mem.Allocator) void {
@@ -131,6 +193,36 @@ pub const AnisotropicRecord = struct {
     element: ?string = null,
     charge: ?string = null,
 
+    pub fn new(raw_line: []const u8, allocator: std.mem.Allocator) !AnisotropicRecord {
+        var anisotropic: AnisotropicRecord = AnisotropicRecord{};
+        anisotropic.serial = try std.fmt.parseInt(u32, strings.removeSpaces(raw_line[6..11]), 10);
+        anisotropic.name = try allocator.dupe(u8, strings.removeSpaces(raw_line[12..16]));
+        anisotropic.altLoc = if (raw_line[16] == 32) null else raw_line[16];
+        anisotropic.resName = try allocator.dupe(u8, strings.removeSpaces(raw_line[17..20]));
+        anisotropic.chainID = raw_line[21];
+        anisotropic.resSeq = try std.fmt.parseInt(u16, strings.removeSpaces(raw_line[22..26]), 10);
+        anisotropic.iCode = if (raw_line[26] == 32) null else raw_line[26];
+        anisotropic.u00 = try std.fmt.parseInt(i32, strings.removeSpaces(raw_line[28..35]), 10);
+        anisotropic.u11 = try std.fmt.parseInt(i32, strings.removeSpaces(raw_line[35..42]), 10);
+        anisotropic.u22 = try std.fmt.parseInt(i32, strings.removeSpaces(raw_line[42..49]), 10);
+        anisotropic.u01 = try std.fmt.parseInt(i32, strings.removeSpaces(raw_line[49..56]), 10);
+        anisotropic.u02 = try std.fmt.parseInt(i32, strings.removeSpaces(raw_line[56..63]), 10);
+        anisotropic.u12 = try std.fmt.parseInt(i32, strings.removeSpaces(raw_line[63..70]), 10);
+        if (raw_line.len > 76) {
+            const element = strings.removeSpaces(raw_line[76..78]);
+            if (element.len != 0) {
+                anisotropic.element = try allocator.dupe(u8, element);
+            }
+            if (raw_line.len == 80) {
+                const charge = strings.removeSpaces(raw_line[78..80]);
+                if (charge.len != 0) {
+                    anisotropic.charge = try allocator.dupe(u8, charge);
+                }
+            }
+        }
+        return anisotropic;
+    }
+
     /// Frees all the strings in the struct
     pub fn free(self: *AnisotropicRecord, allocator: std.mem.Allocator) void {
         if (self.charge != null) {
@@ -147,6 +239,12 @@ pub const AnisotropicRecord = struct {
 /// Represents a MODEL record
 pub const ModelRecord = struct {
     serial: u32 = undefined,
+
+    pub fn new(raw_line: []const u8) !ModelRecord {
+        return .{
+            .serial = try std.fmt.parseInt(u32, strings.removeSpaces(raw_line[10..14]), 10),
+        };
+    }
 };
 
 // zig fmt: off
@@ -186,39 +284,36 @@ pub const Record = union(RecordType) {
         index: u32,
         allocator: std.mem.Allocator,
     ) !Record {
-        var cl: *const ConnectLine = undefined;
-        var line: *const Line = undefined;
-        var ml: *const ModelLine = undefined;
-        var al: *const AnisotropicLine = undefined;
-        if (std.mem.eql(u8, raw_line[0..6], "CONECT")) {
-            cl = ConnectLine.new(raw_line);
-        } else if (std.mem.eql(u8, raw_line[0..6], "MODEL ")) {
-            ml = ModelLine.new(raw_line);
-        } else if (std.mem.eql(u8, raw_line[0..6], "ANISOU")) {
-            al = AnisotropicLine.new(raw_line);
-        } else if (std.mem.eql(u8, raw_line[0..6], "ENDMDL")) {
-            return .endmdl;
-        } else {
-            line = Line.new(raw_line);
-        }
         const record: Record = switch (tag) {
             inline .atom, .hetatm => |t| @unionInit(
                 Record,
                 @tagName(t),
-                try line.convertToAtomRecord(index, raw_line.len, allocator),
+                try AtomRecord.new(raw_line, index, allocator),
+                // try line.convertToAtomRecord(index, raw_line.len, allocator),
             ),
-            .term => .{
-                .term = try line.convertToTermRecord(allocator),
-            },
-            .model => .{
-                .model = try ml.convertToModelRecord(),
-            },
-            .connect => .{
-                .connect = try cl.convertToConnectRecord(raw_line.len),
-            },
-            .anisou => .{
-                .anisou = try al.convertToAnisotropicRecord(index, raw_line.len, allocator),
-            },
+            inline .term => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try TermRecord.new(raw_line, allocator),
+            ),
+            inline .model => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try ModelRecord.new(raw_line),
+            ),
+            inline .connect => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try ConnectRecord.new(raw_line),
+            ),
+            inline .anisou => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try AnisotropicRecord.new(raw_line, allocator),
+            ),
+            // .anisou => .{
+            //     .anisou = try al.convertToAnisotropicRecord(index, raw_line.len, allocator),
+            // },
             .endmdl => @panic("Should not be here"),
         };
 
@@ -414,8 +509,7 @@ const AnisotropicLine = extern struct {
 
 test "Anisotropic Line" {
     const line = "ANISOU    1  N   MET A   1      688   1234    806    -19    -49    178       N  ";
-    var parseLine = AnisotropicLine.new(line);
-    var record = try parseLine.convertToAnisotropicRecord(1, line.len, testalloc);
+    var record = try AnisotropicRecord.new(line, testalloc);
     defer record.free(testalloc);
     try expectEqual(1, record.serial);
     try testing.expectEqualStrings("N", record.name);
@@ -461,15 +555,14 @@ const ConnectLine = extern struct {
     }
 };
 
-test "Connect Line" {
+test "Connect Record" {
     const line = "CONECT  413  412  414                                                           ";
-    var parseLine = ConnectLine.new(line);
-    const record = try parseLine.convertToConnectRecord(line.len);
-    try expectEqual(413, record.serial);
-    try expectEqual(412, record.serial1);
-    try expectEqual(414, record.serial2);
-    try expectEqual(null, record.serial3);
-    try expectEqual(null, record.serial4);
+    const connectRecord = try ConnectRecord.new(line);
+    try expectEqual(413, connectRecord.serial);
+    try expectEqual(412, connectRecord.serial1);
+    try expectEqual(414, connectRecord.serial2);
+    try expectEqual(null, connectRecord.serial3);
+    try expectEqual(null, connectRecord.serial4);
 }
 
 const Line = extern struct {
@@ -556,20 +649,7 @@ fn expectEqual(expected: anytype, actual: anytype) !void {
 
 test "convert to atoms" {
     const line = "ATOM     17  NE2 GLN     2      25.562  32.733   1.806  1.00 19.49      1UBQ";
-    const parsedLine = Line.new(line);
-    try testing.expectEqualStrings("ATOM  ", &parsedLine.record);
-    try testing.expectEqualStrings("   17", &parsedLine.serial);
-    try testing.expectEqualStrings(" NE2", &parsedLine.name);
-    try testing.expectEqualStrings(" ", &parsedLine.altLoc);
-    try testing.expectEqualStrings("GLN", &parsedLine.resName);
-    try testing.expectEqualStrings("   2", &parsedLine.resSeq);
-    try testing.expectEqualStrings("  25.562", &parsedLine.x);
-    try testing.expectEqualStrings("  32.733", &parsedLine.y);
-    try testing.expectEqualStrings("   1.806", &parsedLine.z);
-    try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
-    try testing.expectEqualStrings(" 19.49", &parsedLine.tempFactor);
-    try testing.expectEqualStrings("      1UBQ", &parsedLine._space4);
-    var atom = try parsedLine.convertToAtomRecord(1, line.len, testalloc);
+    var atom = try AtomRecord.new(line, 1, testalloc);
     defer atom.free(testalloc);
     try expectEqual(17, atom.serial);
     try testing.expectEqualStrings("NE2", atom.name);
@@ -588,20 +668,7 @@ test "convert to atoms" {
 
 test "convert to atoms drude" {
     const line = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
-    const parsedLine = Line.new(line);
-    try testing.expectEqualStrings("ATOM  ", &parsedLine.record);
-    try testing.expectEqualStrings("    1", &parsedLine.serial);
-    try testing.expectEqualStrings(" N  ", &parsedLine.name);
-    try testing.expectEqualStrings(" ", &parsedLine.altLoc);
-    try testing.expectEqualStrings("MET", &parsedLine.resName);
-    try testing.expectEqualStrings("   1", &parsedLine.resSeq);
-    try testing.expectEqualStrings("  34.774", &parsedLine.x);
-    try testing.expectEqualStrings("  28.332", &parsedLine.y);
-    try testing.expectEqualStrings("  51.752", &parsedLine.z);
-    try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
-    try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
-    try testing.expectEqualStrings("      PROA", &parsedLine._space4);
-    var atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
+    var atom = try AtomRecord.new(line, 1, testalloc);
     defer atom.free(testalloc);
     try expectEqual(1, atom.serial);
     try testing.expectEqualStrings("N", atom.name);
@@ -629,20 +696,7 @@ test "convert to atoms multi-line" {
 
     var split = std.mem.splitSequence(u8, lines, "\n");
     while (split.next()) |line| {
-        const parsedLine = Line.new(line);
-        try testing.expectEqualStrings("ATOM  ", &parsedLine.record);
-        try testing.expectEqualStrings("    1", &parsedLine.serial);
-        try testing.expectEqualStrings(" N  ", &parsedLine.name);
-        try testing.expectEqualStrings(" ", &parsedLine.altLoc);
-        try testing.expectEqualStrings("MET", &parsedLine.resName);
-        try testing.expectEqualStrings("   1", &parsedLine.resSeq);
-        try testing.expectEqualStrings("  34.774", &parsedLine.x);
-        try testing.expectEqualStrings("  28.332", &parsedLine.y);
-        try testing.expectEqualStrings("  51.752", &parsedLine.z);
-        try testing.expectEqualStrings("  1.00", &parsedLine.occupancy);
-        try testing.expectEqualStrings("  0.00", &parsedLine.tempFactor);
-        try testing.expectEqualStrings("      PROA", &parsedLine._space4);
-        const atom = try parsedLine.convertToAtomRecord(0, line.len, testalloc);
+        const atom = try AtomRecord.new(line, 0, testalloc);
         try atoms.append(atom);
     }
     try expectEqual(2, atoms.items.len);

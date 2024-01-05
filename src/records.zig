@@ -311,10 +311,7 @@ pub const Record = union(RecordType) {
                 @tagName(t),
                 try AnisotropicRecord.new(raw_line, allocator),
             ),
-            // .anisou => .{
-            //     .anisou = try al.convertToAnisotropicRecord(index, raw_line.len, allocator),
-            // },
-            .endmdl => @panic("Should not be here"),
+            .endmdl => .endmdl,
         };
 
         return record;

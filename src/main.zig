@@ -8,6 +8,7 @@ const strings = @import("strings.zig");
 const AtomRecord = @import("records.zig").AtomRecord;
 const RunRecord = @import("records.zig").RunRecord;
 const PDBReader = @import("records.zig").PDBReader;
+const PDB = @import("records.zig").PDB;
 
 test {
     // this causes 'zig build test' to test any referenced files
@@ -60,17 +61,13 @@ pub fn main() !void {
 
     if (parsedArgs.runs == 1) {
         var bufreader = std.io.bufferedReader(file.reader());
-        var atoms = try PDBReader(bufreader.reader(), allocator);
-        defer atoms.deinit();
+
+        var pdb = try PDB.init(allocator);
+        defer pdb.deinit();
+        try pdb.read(bufreader.reader());
+
         const writer = std.io.getStdOut().writer();
-        for (atoms.items) |*atom| {
-            if (parsedArgs.json) {
-                try writer.print("{json}\n", .{atom});
-            } else {
-                try writer.print("{}\n", .{atom});
-            }
-            atom.free(allocator);
-        }
+        try writer.print("{}\n", .{pdb});
         std.os.exit(0);
     }
 
@@ -93,7 +90,8 @@ pub fn main() !void {
         }
         timer.reset();
         var bufreader = std.io.bufferedReader(file.reader());
-        _ = try PDBReader(bufreader.reader(), arenaAllocator);
+        var pdb = try PDB.init(arenaAllocator);
+        try pdb.read(bufreader.reader());
         const elapsed = timer.read();
         try times.append(elapsed);
         var runRecord: RunRecord = RunRecord{ .run = i + 1, .time = elapsed, .file = parsedArgs.fileName };

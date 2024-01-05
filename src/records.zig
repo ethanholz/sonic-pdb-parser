@@ -7,6 +7,57 @@ const strings = @import("strings.zig");
 const string = []const u8;
 const char = u8;
 
+pub const PDB = struct {
+    records: std.ArrayList(Record) = undefined,
+    allocator: std.mem.Allocator = undefined,
+
+    pub fn init(allocator: std.mem.Allocator) !PDB {
+        var pdb = PDB{};
+        pdb.records = std.ArrayList(Record).init(allocator);
+        pdb.allocator = allocator;
+        return pdb;
+    }
+
+    pub fn deinit(self: *PDB) void {
+        for (self.records.items) |*record| record.free(self.allocator);
+        self.records.deinit();
+    }
+
+    pub fn read(self: *PDB, reader: anytype) !void {
+        var buf: [90]u8 = undefined;
+        var recordNumber: u32 = 0;
+        const end = std.mem.readInt(u48, "END   ", .little);
+        while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+            if (line.len < 6) continue;
+            const tag_int = std.mem.readInt(u48, line[0..6], .little);
+            if (tag_int == end) break;
+            const tag = std.meta.intToEnum(RecordType, tag_int) catch continue;
+            if (tag == .endmdl) {
+                continue;
+            }
+            // TODO: Add switch to handle connect records
+            const record = try Record.parse(line, tag, recordNumber, self.allocator);
+            recordNumber = record.serial();
+            try self.records.append(record);
+        }
+    }
+
+    pub fn format(
+        self: PDB,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        for (self.records.items) |record| {
+            if (comptime std.mem.eql(u8, fmt, "json")) {
+                try writer.print("{json}\n", .{record});
+            } else {
+                try writer.print("{}\n", .{record});
+            }
+        }
+    }
+};
+
 /// Reads in a PDB file and converts them to an ArrayList of records
 pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(Record) {
     var records = std.ArrayList(Record).init(allocator);

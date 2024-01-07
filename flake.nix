@@ -28,7 +28,7 @@
         packages.default = packages.sonic-pdb-parser;
         packages.sonic-pdb-parser = pkgs.stdenvNoCC.mkDerivation {
           name = "sonic-pdb-parser";
-          version = "master";
+          version = "main";
           src = gitignoreSource ./.;
           nativeBuildInputs = [ zig ];
           dontConfigure = true;

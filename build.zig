@@ -15,9 +15,9 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("sonic-fasta", .{ .source_file = .{ .path = "src/fasta.zig" } });
-
-    _ = b.addModule("sonic", .{ .source_file = .{ .path = "src/records.zig" } });
+    // Module declarations
+    _ = b.addModule("sonic-fasta", .{ .root_source_file = .{ .path = "src/fasta.zig" } });
+    _ = b.addModule("sonic", .{ .root_source_file = .{ .path = "src/records.zig" } });
 
     const fasta = b.addExecutable(.{
         .name = "pdb2fasta",

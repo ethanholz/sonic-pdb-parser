@@ -56,13 +56,17 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
     const parsedArgs = try Args.parseArgs(args);
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arenaAllocator = arena.allocator();
+
     const file = try fs.cwd().openFile(parsedArgs.fileName, .{});
     defer file.close();
 
     if (parsedArgs.runs == 1) {
         var bufreader = std.io.bufferedReader(file.reader());
 
-        var pdb = try PDB.init(allocator);
+        var pdb = try PDB.init(arenaAllocator);
         defer pdb.deinit();
         try pdb.read(bufreader.reader());
 
@@ -79,9 +83,9 @@ pub fn main() !void {
     defer csv.close();
     try RunRecord.writeCSVHeader(csv);
 
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arenaAllocator = arena.allocator();
+    // var arena = std.heap.ArenaAllocator.init(allocator);
+    // defer arena.deinit();
+    // const arenaAllocator = arena.allocator();
 
     for (0..parsedArgs.runs) |i| {
         defer {

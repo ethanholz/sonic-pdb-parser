@@ -71,7 +71,11 @@ pub fn main() !void {
         try pdb.read(bufreader.reader());
 
         const writer = std.io.getStdOut().writer();
-        try writer.print("{json}\n", .{pdb});
+        if (parsedArgs.json) {
+            try writer.print("{json}\n", .{pdb});
+        } else {
+            try writer.print("{}\n", .{pdb});
+        }
         std.os.exit(0);
     }
 

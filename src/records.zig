@@ -287,6 +287,50 @@ pub const AnisotropicRecord = struct {
     }
 };
 
+/// Represents a CRYST1 record
+pub const CrystalRecord = struct {
+    a: f32 = undefined,
+    b: f32 = undefined,
+    c: f32 = undefined,
+    alpha: f32 = undefined,
+    beta: f32 = undefined,
+    gamma: f32 = undefined,
+    spaceGroup: string = undefined,
+    z: u16 = undefined,
+
+    // TODO: See if lines adhere to using all parameters
+    pub fn new(raw_line: []const u8, allocator: std.mem.Allocator) !CrystalRecord {
+        return .{
+            .a = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[6..15])),
+            .b = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[15..24])),
+            .c = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[24..33])),
+            .alpha = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[33..40])),
+            .beta = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[40..47])),
+            .gamma = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[47..54])),
+            .spaceGroup = try allocator.dupe(u8, strings.removeSpaces(raw_line[55..66])),
+            .z = try std.fmt.parseInt(u16, strings.removeSpaces(raw_line[66..70]), 10),
+        };
+    }
+
+    pub fn free(self: *CrystalRecord, allocator: std.mem.Allocator) void {
+        allocator.free(self.spaceGroup);
+    }
+};
+
+test "parse CRYST1 record" {
+    const line = "CRYST1   52.000   58.600   61.900  90.00  90.00  90.00 P 21 21 21    8          ";
+    var crystal = try CrystalRecord.new(line, testalloc);
+    defer crystal.free(testalloc);
+    try expectEqual(52.000, crystal.a);
+    try expectEqual(58.600, crystal.b);
+    try expectEqual(61.900, crystal.c);
+    try expectEqual(90.00, crystal.alpha);
+    try expectEqual(90.00, crystal.beta);
+    try expectEqual(90.00, crystal.gamma);
+    try testing.expectEqualStrings("P 21 21 21", crystal.spaceGroup);
+    try testing.expectEqual(8, crystal.z);
+}
+
 /// Represents a MODEL record
 pub const ModelRecord = struct {
     serial: u32 = undefined,
@@ -298,6 +342,63 @@ pub const ModelRecord = struct {
     }
 };
 
+pub const OrigxnRecord = struct {
+    N: u16 = undefined,
+    On1: f32 = undefined,
+    On2: f32 = undefined,
+    On3: f32 = undefined,
+    Tn: f32 = undefined,
+
+    pub fn new(raw_line: []const u8) !OrigxnRecord {
+        return .{
+            .N = @as(u16, raw_line[5]) - 48,
+            .On1 = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[10..20])),
+            .On2 = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[20..30])),
+            .On3 = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[30..40])),
+            .Tn = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[45..55])),
+        };
+    }
+};
+
+test "parse ORIGXn Record" {
+    const line = "ORIGX1      0.963457  0.136613  0.230424       16.61000                         ";
+    const origxn = try OrigxnRecord.new(line);
+    try expectEqual(1, origxn.N);
+    try expectEqual(0.963457, origxn.On1);
+    try expectEqual(0.136613, origxn.On2);
+    try expectEqual(0.230424, origxn.On3);
+    try expectEqual(16.61000, origxn.Tn);
+}
+
+/// Represents a SCALEn record
+pub const ScalenRecord = struct {
+    N: u16 = undefined,
+    Sn1: f32 = undefined,
+    Sn2: f32 = undefined,
+    Sn3: f32 = undefined,
+    Un: f32 = undefined,
+
+    pub fn new(raw_line: []const u8) !ScalenRecord {
+        return .{
+            .N = @as(u16, raw_line[5]) - 48,
+            .Sn1 = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[10..20])),
+            .Sn2 = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[20..30])),
+            .Sn3 = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[30..40])),
+            .Un = try std.fmt.parseFloat(f32, strings.removeSpaces(raw_line[45..55])),
+        };
+    }
+};
+
+test "parse SCALEn record" {
+    const line = "SCALE1      0.019231  0.000000  0.000000        0.00000                         ";
+    const scalen = try ScalenRecord.new(line);
+    try expectEqual(1, scalen.N);
+    try expectEqual(0.019231, scalen.Sn1);
+    try expectEqual(0.000000, scalen.Sn2);
+    try expectEqual(0.000000, scalen.Sn3);
+    try expectEqual(0.00000, scalen.Un);
+}
+
 // zig fmt: off
 /// An enum derived of possible records in a PDB file
 pub const RecordType = enum(u48) {
@@ -307,6 +408,13 @@ pub const RecordType = enum(u48) {
     connect = std.mem.readInt(u48, "CONECT", .little),
     model =   std.mem.readInt(u48, "MODEL ", .little),
     anisou = std.mem.readInt(u48, "ANISOU", .little),
+    cryst1 = std.mem.readInt(u48, "CRYST1", .little),
+    origx1 = std.mem.readInt(u48, "ORIGX1", .little),
+    origx2 = std.mem.readInt(u48, "ORIGX2", .little),
+    origx3 = std.mem.readInt(u48, "ORIGX3", .little),
+    scale1 = std.mem.readInt(u48, "SCALE1", .little),
+    scale2 = std.mem.readInt(u48, "SCALE2", .little),
+    scale3 = std.mem.readInt(u48, "SCALE3", .little),
     endmdl = std.mem.readInt(u48, "ENDMDL", .little),
 };
 // zig fmt: on
@@ -325,6 +433,16 @@ pub const Record = union(RecordType) {
     model: ModelRecord,
     /// An ANISOU record
     anisou: AnisotropicRecord,
+    /// A CRYST1 record
+    cryst1: CrystalRecord,
+    /// origxn records
+    origx1: OrigxnRecord,
+    origx2: OrigxnRecord,
+    origx3: OrigxnRecord,
+    // scalen records
+    scale1: ScalenRecord,
+    scale2: ScalenRecord,
+    scale3: ScalenRecord,
     /// An ENDMDL record
     endmdl: void,
 
@@ -340,7 +458,6 @@ pub const Record = union(RecordType) {
                 Record,
                 @tagName(t),
                 try AtomRecord.new(raw_line, index, allocator),
-                // try line.convertToAtomRecord(index, raw_line.len, allocator),
             ),
             inline .term => |t| @unionInit(
                 Record,
@@ -361,6 +478,21 @@ pub const Record = union(RecordType) {
                 Record,
                 @tagName(t),
                 try AnisotropicRecord.new(raw_line, allocator),
+            ),
+            inline .cryst1 => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try CrystalRecord.new(raw_line, allocator),
+            ),
+            inline .origx1, .origx2, .origx3 => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try OrigxnRecord.new(raw_line),
+            ),
+            inline .scale1, .scale2, .scale3 => |t| @unionInit(
+                Record,
+                @tagName(t),
+                try ScalenRecord.new(raw_line),
             ),
             .endmdl => .endmdl,
         };
@@ -471,7 +603,8 @@ pub const Record = union(RecordType) {
             .atom, .hetatm => |*atom| atom.free(allocator),
             .term => |*ter| ter.free(allocator),
             .anisou => |*anisou| anisou.free(allocator),
-            .model, .connect, .endmdl => return,
+            .cryst1 => |*cryst1| cryst1.free(allocator),
+            .model, .connect, .origx1, .origx2, .origx3, .scale1, .scale2, .scale3, .endmdl => return,
         }
     }
 };

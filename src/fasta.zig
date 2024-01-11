@@ -1,5 +1,5 @@
 const std = @import("std");
-const records = @import("records.zig");
+const records = @import("records/records.zig");
 const strings = @import("strings.zig");
 const Record = records.Record;
 

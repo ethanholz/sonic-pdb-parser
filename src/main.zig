@@ -1,18 +1,18 @@
 const std = @import("std");
 const fs = std.fs;
+const Records = @import("records/records.zig");
 
 const string = []const u8;
 const char = u8;
 
+const PDB = Records.PDB;
+const PDBReader = Records.PDBReader;
+const RunRecord = Records.RunRecord;
 const strings = @import("strings.zig");
-const AtomRecord = @import("records.zig").AtomRecord;
-const RunRecord = @import("records.zig").RunRecord;
-const PDBReader = @import("records.zig").PDBReader;
-const PDB = @import("records.zig").PDB;
 
 test {
     // this causes 'zig build test' to test any referenced files
-    _ = @import("records.zig");
+    _ = @import("records/records.zig");
     _ = @import("strings.zig");
 }
 

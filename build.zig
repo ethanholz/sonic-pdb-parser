@@ -1,4 +1,17 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+comptime {
+    const required_zig = "0.12.0-dev.2150+63de8a598";
+    const current_zig = builtin.zig_version;
+    const min_zig = std.SemanticVersion.parse(required_zig) catch unreachable;
+    if (current_zig.order(min_zig) == .lt) {
+        @compileError(std.fmt.comptimePrint(
+            "Your Zig version v{} does not meet the minimum build requirement of v{}",
+            .{ current_zig, min_zig },
+        ));
+    }
+}
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external

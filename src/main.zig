@@ -11,7 +11,7 @@ const PDBReader = sonic.PDBReader;
 const RunRecord = sonic.RunRecord;
 
 test {
-    // this causes 'zig build test' to test any referenced fileS
+    // this causes 'zig build test' to test any referenced files
     _ = @import("sonic");
     _ = @import("strings");
 }

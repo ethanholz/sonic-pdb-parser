@@ -19,12 +19,12 @@ const Args = struct {
             }
             if (strings.equals(arg, "-h")) {
                 std.debug.print("Usage: pdb2fasta -f <file> -o <output>\n", .{});
-                std.os.exit(0);
+                std.posix.exit(0);
             }
         }
         if (strings.equals(args.fileName, "")) {
             std.debug.print("No file specified, please provide a file\n", .{});
-            std.os.exit(1);
+            std.posix.exit(1);
         }
         return args;
     }

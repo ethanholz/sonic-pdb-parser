@@ -1,5 +1,5 @@
 const std = @import("std");
-const strings = @import("../strings.zig");
+const strings = @import("strings");
 
 const testing = std.testing;
 const testalloc = std.testing.allocator;
@@ -78,6 +78,7 @@ test "convert to atoms" {
     defer atom.free(testalloc);
     try expectEqual(17, atom.serial);
     try testing.expectEqualStrings("NE2", atom.name);
+    try expectEqual(null, atom.altLoc);
     try testing.expectEqualStrings("GLN", atom.resName);
     try std.testing.expect(2 == atom.resSeq);
     try expectEqual(2, atom.resSeq);

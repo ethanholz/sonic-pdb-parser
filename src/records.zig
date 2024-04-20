@@ -2,29 +2,39 @@ const std = @import("std");
 const testing = std.testing;
 const testalloc = testing.allocator;
 
-const strings = @import("../strings.zig");
-const expectEqual = @import("test_helper.zig").expectEqual;
+const expectEqual = @import("records/test_helper.zig").expectEqual;
 
-pub const AnisotropicRecord = @import("anisou.zig").AnisotropicRecord;
-pub const AtomRecord = @import("atom.zig").AtomRecord;
-pub const ConnectRecord = @import("connect.zig").ConnectRecord;
-pub const CrystalRecord = @import("crystal.zig").CrystalRecord;
-pub const ModelRecord = @import("model.zig").ModelRecord;
-pub const OrigxnRecord = @import("origxn.zig").OrigxnRecord;
-pub const ScalenRecord = @import("scalen.zig").ScalenRecord;
-pub const TermRecord = @import("term.zig").TermRecord;
+pub const recordsTypes = struct {
+    usingnamespace @import("records/anisou.zig");
+    usingnamespace @import("records/atom.zig");
+    usingnamespace @import("records/connect.zig");
+    usingnamespace @import("records/crystal.zig");
+    usingnamespace @import("records/model.zig");
+    usingnamespace @import("records/origxn.zig");
+    usingnamespace @import("records/scalen.zig");
+    usingnamespace @import("records/term.zig");
+};
+
+pub const AnisotropicRecord = recordsTypes.AnisotropicRecord;
+pub const AtomRecord = recordsTypes.AtomRecord;
+pub const ConnectRecord = recordsTypes.ConnectRecord;
+pub const CrystalRecord = recordsTypes.CrystalRecord;
+pub const ModelRecord = recordsTypes.ModelRecord;
+pub const OrigxnRecord = recordsTypes.OrigxnRecord;
+pub const ScalenRecord = recordsTypes.ScalenRecord;
+pub const TermRecord = recordsTypes.TermRecord;
 
 test {
-    _ = @import("anisou.zig");
-    _ = @import("atom.zig");
-    _ = @import("anisou.zig");
-    _ = @import("atom.zig");
-    _ = @import("connect.zig");
-    _ = @import("crystal.zig");
-    _ = @import("model.zig");
-    _ = @import("origxn.zig");
-    _ = @import("scalen.zig");
-    _ = @import("term.zig");
+    _ = @import("records/anisou.zig");
+    _ = @import("records/atom.zig");
+    _ = @import("records/anisou.zig");
+    _ = @import("records/atom.zig");
+    _ = @import("records/connect.zig");
+    _ = @import("records/crystal.zig");
+    _ = @import("records/model.zig");
+    _ = @import("records/origxn.zig");
+    _ = @import("records/scalen.zig");
+    _ = @import("records/term.zig");
 }
 
 const string = []const u8;

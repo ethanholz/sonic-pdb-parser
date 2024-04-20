@@ -1,5 +1,5 @@
 const std = @import("std");
-const strings = @import("../strings.zig");
+const strings = @import("strings");
 
 const testing = std.testing;
 const testalloc = testing.allocator;

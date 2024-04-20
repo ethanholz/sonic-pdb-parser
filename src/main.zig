@@ -1,19 +1,19 @@
+const strings = @import("strings");
 const std = @import("std");
 const fs = std.fs;
-const Records = @import("records/records.zig");
+const sonic = @import("sonic");
 
 const string = []const u8;
 const char = u8;
 
-const PDB = Records.PDB;
-const PDBReader = Records.PDBReader;
-const RunRecord = Records.RunRecord;
-const strings = @import("strings.zig");
+const PDB = sonic.PDB;
+const PDBReader = sonic.PDBReader;
+const RunRecord = sonic.RunRecord;
 
 test {
-    // this causes 'zig build test' to test any referenced files
-    _ = @import("records/records.zig");
-    _ = @import("strings.zig");
+    // this causes 'zig build test' to test any referenced fileS
+    _ = @import("sonic");
+    _ = @import("strings");
 }
 
 const Args = struct {

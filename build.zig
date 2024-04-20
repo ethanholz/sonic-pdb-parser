@@ -29,8 +29,12 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Module declarations
-    _ = b.addModule("sonic-fasta", .{ .root_source_file = .{ .path = "src/fasta.zig" } });
-    _ = b.addModule("sonic", .{ .root_source_file = .{ .path = "src/records.zig" } });
+    const strings = b.addModule("sonic-strings", .{ .root_source_file = .{ .path = "src/strings.zig" } });
+    const sonic = b.addModule("sonic", .{ .root_source_file = .{ .path = "src/records.zig" } });
+    sonic.addImport("strings", strings);
+    const fastaModule = b.addModule("sonic-fasta", .{ .root_source_file = .{ .path = "src/fasta-lib.zig" } });
+    fastaModule.addImport("strings", strings);
+    fastaModule.addImport("sonic", sonic);
 
     const fasta = b.addExecutable(.{
         .name = "pdb2fasta",
@@ -40,6 +44,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    fasta.root_module.addImport("sonic-fasta", fastaModule);
+    fasta.root_module.addImport("sonic", sonic);
+    fasta.root_module.addImport("strings", strings);
+    // fasta.root_module.addImport("strings", strings);
+    // fasta.root_module.addImport("records", sonic);
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -53,6 +62,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("sonic", sonic);
+    exe.root_module.addImport("strings", strings);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

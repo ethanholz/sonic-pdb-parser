@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
     const strings = b.addModule("sonic-strings", .{ .root_source_file = .{ .path = "src/strings.zig" } });
     const sonic = b.addModule("sonic", .{ .root_source_file = .{ .path = "src/records.zig" } });
     sonic.addImport("strings", strings);
+
     const fastaModule = b.addModule("sonic-fasta", .{ .root_source_file = .{ .path = "src/fasta-lib.zig" } });
     fastaModule.addImport("strings", strings);
     fastaModule.addImport("sonic", sonic);
@@ -43,6 +44,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/fasta.zig" },
         .target = target,
         .optimize = optimize,
+        .use_lld = false,
+        .use_llvm = false,
     });
     fasta.root_module.addImport("sonic-fasta", fastaModule);
     fasta.root_module.addImport("sonic", sonic);
@@ -61,6 +64,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .use_lld = false,
+        .use_llvm = false,
     });
     exe.root_module.addImport("sonic", sonic);
     exe.root_module.addImport("strings", strings);
@@ -99,15 +104,40 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .use_llvm = false,
+        .use_lld = false,
+    });
+    unit_tests.root_module.addImport("sonic", sonic);
+    unit_tests.root_module.addImport("strings", strings);
+
+    const sonic_test = b.addTest(.{
+        .root_source_file = b.path("src/records.zig"),
+        .target = target,
+        .optimize = optimize,
+        .use_llvm = false,
+        .use_lld = false,
+    });
+    sonic_test.root_module.addImport("strings", strings);
+
+    const strings_test = b.addTest(.{
+        .root_source_file = b.path("src/strings.zig"),
+        .target = target,
+        .optimize = optimize,
+        .use_llvm = false,
+        .use_lld = false,
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
+    const run_sonic_tests = b.addRunArtifact(sonic_test);
+    const run_strings_tests = b.addRunArtifact(strings_test);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_sonic_tests.step);
+    test_step.dependOn(&run_strings_tests.step);
 
     // const install_docs = b.addInstallDirectory(.{
     //     .source_dir = lib.getEmittedDocs(),

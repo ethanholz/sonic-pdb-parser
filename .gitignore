@@ -1,5 +1,7 @@
 *.csv
 main
 main.o
+.zig-cache
 zig-cache
 zig-out
+result

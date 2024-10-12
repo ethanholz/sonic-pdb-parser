@@ -3,7 +3,7 @@ const strings = @import("strings");
 const records = @import("sonic");
 const Record = records.Record;
 
-const newTerms = std.ComptimeStringMap(u8, .{
+const newTerms = std.StaticStringMap(u8).initComptime(.{
     .{ "ALA", 'A' },
     .{ "VAL", 'V' },
     .{ "PHE", 'F' },

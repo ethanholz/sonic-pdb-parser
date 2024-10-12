@@ -29,11 +29,16 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Module declarations
-    const strings = b.addModule("sonic-strings", .{ .root_source_file = .{ .path = "src/strings.zig" } });
-    const sonic = b.addModule("sonic", .{ .root_source_file = .{ .path = "src/records.zig" } });
+    const strings = b.addModule("sonic-strings", .{ .root_source_file = b.path("src/strings.zig") });
+    const sonic = b.addModule(
+        "sonic",
+        .{ .root_source_file = b.path("src/records.zig") },
+    );
     sonic.addImport("strings", strings);
 
-    const fastaModule = b.addModule("sonic-fasta", .{ .root_source_file = .{ .path = "src/fasta-lib.zig" } });
+    const fastaModule = b.addModule("sonic-fasta", .{
+        .root_source_file = b.path("src/fasta-lib.zig"),
+    });
     fastaModule.addImport("strings", strings);
     fastaModule.addImport("sonic", sonic);
 
@@ -41,11 +46,9 @@ pub fn build(b: *std.Build) void {
         .name = "pdb2fasta",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/fasta.zig" },
+        .root_source_file = b.path("src/fasta.zig"),
         .target = target,
         .optimize = optimize,
-        .use_lld = false,
-        .use_llvm = false,
     });
     fasta.root_module.addImport("sonic-fasta", fastaModule);
     fasta.root_module.addImport("sonic", sonic);
@@ -61,11 +64,9 @@ pub fn build(b: *std.Build) void {
         .name = "sonic-pdb-parser",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .use_lld = false,
-        .use_llvm = false,
     });
     exe.root_module.addImport("sonic", sonic);
     exe.root_module.addImport("strings", strings);
@@ -101,11 +102,9 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .use_llvm = false,
-        .use_lld = false,
     });
     unit_tests.root_module.addImport("sonic", sonic);
     unit_tests.root_module.addImport("strings", strings);
@@ -114,8 +113,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/records.zig"),
         .target = target,
         .optimize = optimize,
-        .use_llvm = false,
-        .use_lld = false,
     });
     sonic_test.root_module.addImport("strings", strings);
 
@@ -123,8 +120,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/strings.zig"),
         .target = target,
         .optimize = optimize,
-        .use_llvm = false,
-        .use_lld = false,
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);

@@ -131,7 +131,8 @@ pub const RunRecord = struct {
     }
 
     pub fn writeCSVHeader(file: std.fs.File) !void {
-        const fields = @typeInfo(RunRecord).Struct.fields;
+        // const fields = @typeInfo(RunRecord).Struct.fields;
+        const fields = @typeInfo(RunRecord).@"struct".fields;
         const len = fields.len;
         inline for (fields, 0..) |field, idx| {
             std.debug.print("{s}\n", .{field.name});
@@ -305,27 +306,29 @@ pub const Record = union(RecordType) {
         if (comptime std.mem.eql(u8, fmt, "json")) {
             _ = try std.json.stringify(self, .{}, writer);
         } else {
-            const uInfo = @typeInfo(@TypeOf(self)).Union;
+            // const uInfo = @typeInfo(@TypeOf(self)).Union;
+            const uInfo = @typeInfo(@TypeOf(self)).@"union";
+
             if (uInfo.tag_type) |UnionTagType| {
                 inline for (uInfo.fields) |uField| {
                     if (self == @field(UnionTagType, uField.name)) {
                         switch (@typeInfo(uField.type)) {
-                            .Void => try writer.print("{s}", .{uField.name}),
-                            .Struct => {
-                                const fields = @typeInfo(uField.type).Struct.fields;
+                            .void => try writer.print("{s}", .{uField.name}),
+                            .@"struct" => {
+                                const fields = @typeInfo(uField.type).@"struct".fields;
                                 inline for (fields) |field| {
                                     const fmt2 = switch (@typeInfo(field.type)) {
-                                        .Optional => |optional| switch (@typeInfo(optional.child)) {
-                                            .Pointer => |ptr_info| switch (ptr_info.size) {
-                                                .Slice, .Many => "{?s}",
+                                        .optional => |optional| switch (@typeInfo(optional.child)) {
+                                            .pointer => |ptr_info| switch (ptr_info.size) {
+                                                .slice, .many => "{?s}",
                                                 else => "{?}",
                                             },
                                             else => "{?}",
                                         },
-                                        .Float => "{d:.3}",
-                                        .Int => "{}",
-                                        .Pointer => |ptr_info| switch (ptr_info.size) {
-                                            .Slice, .Many => "{s}",
+                                        .float => "{d:.3}",
+                                        .int => "{}",
+                                        .pointer => |ptr_info| switch (ptr_info.size) {
+                                            .slice, .many => "{s}",
                                             else => "{}",
                                         },
                                         // .Pointer => |ptr| if (ptr.child == .Slice) "{s}",

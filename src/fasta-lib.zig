@@ -67,8 +67,9 @@ fn handleRecord(writer: anytype, record: Record, prevChainID: *u8) !void {
 }
 
 pub fn pdbToFasta(allocator: std.mem.Allocator, lines: []const u8) ![]const u8 {
-    var builder = std.ArrayList(u8).init(allocator);
-    const writer = builder.writer();
+    var builder: std.ArrayList(u8) = .empty;
+    errdefer builder.deinit(allocator);
+    const writer = builder.writer(allocator);
     var prevChainID: u8 = 0;
     var recordNumber: u32 = 0;
     var input = std.mem.tokenizeScalar(u8, lines, '\n');
@@ -84,19 +85,20 @@ pub fn pdbToFasta(allocator: std.mem.Allocator, lines: []const u8) ![]const u8 {
         recordNumber = record.serial();
         try handleRecord(writer, record, &prevChainID);
     }
-    return try builder.toOwnedSlice();
+    return try builder.toOwnedSlice(allocator);
 }
 
 // Handles the conversion of a list of records to a fasta file
 pub fn recordsToFasta(allocator: std.mem.Allocator, input: std.ArrayList(Record)) ![]const u8 {
-    var builder = std.ArrayList(u8).init(allocator);
-    const writer = builder.writer();
+    var builder: std.ArrayList(u8) = .empty;
+    errdefer builder.deinit(allocator);
+    const writer = builder.writer(allocator);
     var prevChainID: u8 = 0;
     for (input.items) |record| {
         if (record == .endmdl) break;
         try handleRecord(writer, record, &prevChainID);
     }
-    return try builder.toOwnedSlice();
+    return try builder.toOwnedSlice(allocator);
 }
 
 // test "recordsToFasta" {

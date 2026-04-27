@@ -38,16 +38,23 @@ pub fn main() !void {
 
     const file = try std.fs.cwd().openFile(parsedArgs.fileName, .{});
     defer file.close();
-    var bufreader = std.io.bufferedReader(file.reader());
-    const atoms = try bufreader.reader().readAllAlloc(allocator, std.math.maxInt(usize));
+    var read_buffer: [4096]u8 = undefined;
+    var file_reader = file.reader(&read_buffer);
+    const atoms = try file_reader.interface.allocRemaining(allocator, .unlimited);
     defer allocator.free(atoms);
 
     const converted = try fasta.pdbToFasta(allocator, atoms);
     defer allocator.free(converted);
-    _ = try std.io.getStdOut().writer().writeAll(converted);
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    try stdout_writer.interface.writeAll(converted);
+    try stdout_writer.interface.flush();
     if (parsedArgs.output != null) {
         const fastaPath = try std.fs.cwd().createFile(parsedArgs.output.?, .{});
         defer fastaPath.close();
-        _ = try fastaPath.writer().writeAll(converted);
+        var write_buffer: [4096]u8 = undefined;
+        var fasta_writer = fastaPath.writerStreaming(&write_buffer);
+        try fasta_writer.interface.writeAll(converted);
+        try fasta_writer.interface.flush();
     }
 }

@@ -64,24 +64,28 @@ pub fn main() !void {
     defer file.close();
 
     if (parsedArgs.runs == 1) {
-        var bufreader = std.io.bufferedReader(file.reader());
+        var read_buffer: [4096]u8 = undefined;
+        var file_reader = file.reader(&read_buffer);
 
         var pdb = try PDB.init(arenaAllocator);
         defer pdb.deinit();
-        try pdb.read(bufreader.reader());
+        try pdb.read(&file_reader.interface);
 
-        const writer = std.io.getStdOut().writer();
+        var stdout_buffer: [4096]u8 = undefined;
+        var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
         if (parsedArgs.json) {
-            try writer.print("{json}\n", .{pdb});
+            try pdb.writeJson(&stdout_writer.interface);
+            try stdout_writer.interface.writeByte('\n');
         } else {
-            try writer.print("{}\n", .{pdb});
+            try stdout_writer.interface.print("{f}\n", .{pdb});
         }
-        std.posix.exit(0);
+        try stdout_writer.interface.flush();
+        return;
     }
 
     var timer = try std.time.Timer.start();
-    var times = try std.ArrayList(u64).initCapacity(allocator, parsedArgs.runs);
-    defer times.deinit();
+    var times = try std.ArrayList(u64).initCapacity(allocator, @intCast(parsedArgs.runs));
+    defer times.deinit(allocator);
     var sum: u64 = 0;
     const csv = try fs.cwd().createFile(parsedArgs.output, .{});
     defer csv.close();
@@ -97,11 +101,12 @@ pub fn main() !void {
             file.seekTo(0) catch @panic("file error");
         }
         timer.reset();
-        var bufreader = std.io.bufferedReader(file.reader());
+        var read_buffer: [4096]u8 = undefined;
+        var file_reader = file.reader(&read_buffer);
         var pdb = try PDB.init(arenaAllocator);
-        try pdb.read(bufreader.reader());
+        try pdb.read(&file_reader.interface);
         const elapsed = timer.read();
-        try times.append(elapsed);
+        try times.append(allocator, elapsed);
         var runRecord: RunRecord = RunRecord{ .run = i + 1, .time = elapsed, .file = parsedArgs.fileName };
         try runRecord.writeCSVLine(csv);
         sum += elapsed;

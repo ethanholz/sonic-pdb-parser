@@ -3,16 +3,24 @@ const testing = std.testing;
 const testalloc = testing.allocator;
 
 const expectEqual = @import("records/test_helper.zig").expectEqual;
+const anisou = @import("records/anisou.zig");
+const atom = @import("records/atom.zig");
+const connect = @import("records/connect.zig");
+const crystal = @import("records/crystal.zig");
+const model = @import("records/model.zig");
+const origxn = @import("records/origxn.zig");
+const scalen = @import("records/scalen.zig");
+const term = @import("records/term.zig");
 
 pub const recordsTypes = struct {
-    usingnamespace @import("records/anisou.zig");
-    usingnamespace @import("records/atom.zig");
-    usingnamespace @import("records/connect.zig");
-    usingnamespace @import("records/crystal.zig");
-    usingnamespace @import("records/model.zig");
-    usingnamespace @import("records/origxn.zig");
-    usingnamespace @import("records/scalen.zig");
-    usingnamespace @import("records/term.zig");
+    pub const AnisotropicRecord = anisou.AnisotropicRecord;
+    pub const AtomRecord = atom.AtomRecord;
+    pub const ConnectRecord = connect.ConnectRecord;
+    pub const CrystalRecord = crystal.CrystalRecord;
+    pub const ModelRecord = model.ModelRecord;
+    pub const OrigxnRecord = origxn.OrigxnRecord;
+    pub const ScalenRecord = scalen.ScalenRecord;
+    pub const TermRecord = term.TermRecord;
 };
 
 pub const AnisotropicRecord = recordsTypes.AnisotropicRecord;
@@ -46,21 +54,24 @@ pub const PDB = struct {
 
     pub fn init(allocator: std.mem.Allocator) !PDB {
         var pdb = PDB{};
-        pdb.records = std.ArrayList(Record).init(allocator);
+        pdb.records = .empty;
         pdb.allocator = allocator;
         return pdb;
     }
 
     pub fn deinit(self: *PDB) void {
         for (self.records.items) |*record| record.free(self.allocator);
-        self.records.deinit();
+        self.records.deinit(self.allocator);
     }
 
     pub fn read(self: *PDB, reader: anytype) !void {
-        var buf: [90]u8 = undefined;
         var recordNumber: u32 = 0;
         const end = std.mem.readInt(u48, "END   ", .little);
-        while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        while (true) {
+            const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => |e| return e,
+            };
             if (line.len < 6) continue;
             const tag_int = std.mem.readInt(u48, line[0..6], .little);
             if (tag_int == end) break;
@@ -71,35 +82,36 @@ pub const PDB = struct {
             // TODO: Add switch to handle connect records
             const record = try Record.parse(line, tag, recordNumber, self.allocator);
             recordNumber = record.serial();
-            try self.records.append(record);
+            try self.records.append(self.allocator, record);
         }
     }
 
-    pub fn format(
-        self: PDB,
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(self: PDB, writer: *std.Io.Writer) !void {
         for (self.records.items) |record| {
-            if (comptime std.mem.eql(u8, fmt, "json")) {
-                try writer.print("{json}\n", .{record});
-            } else {
-                try writer.print("{}\n", .{record});
-            }
+            try writer.print("{f}\n", .{record});
+        }
+    }
+
+    pub fn writeJson(self: PDB, writer: *std.Io.Writer) !void {
+        for (self.records.items) |record| {
+            try record.writeJson(writer);
+            try writer.writeByte('\n');
         }
     }
 };
 
 /// Reads in a PDB file and converts them to an ArrayList of records
 pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(Record) {
-    var records = std.ArrayList(Record).init(allocator);
+    var records: std.ArrayList(Record) = .empty;
     var recordNumber: u32 = 0;
     // PDB lines are should not be more than 80 characters long
     // Some of the CHARMM files are longer
-    var buf: [90]u8 = undefined;
     const end = std.mem.readInt(u48, "END   ", .little);
-    while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+    while (true) {
+        const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
         if (line.len < 6) continue;
         const tag_int = std.mem.readInt(u48, line[0..6], .little);
         if (tag_int == end) break;
@@ -110,7 +122,7 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(R
         // TODO: Add switch to handle connect records
         const record = try Record.parse(line, tag, recordNumber, allocator);
         recordNumber = record.serial();
-        try records.append(record);
+        try records.append(allocator, record);
     }
     return records;
 }
@@ -127,7 +139,10 @@ pub const RunRecord = struct {
 
     // there is no need to allocate here. you can print directly to the file.
     pub fn writeCSVLine(self: *RunRecord, file: std.fs.File) !void {
-        try file.writer().print("{d},{d},{s}\n", .{ self.run, self.time, self.file });
+        var buffer: [1024]u8 = undefined;
+        var file_writer = file.writerStreaming(&buffer);
+        try file_writer.interface.print("{d},{d},{s}\n", .{ self.run, self.time, self.file });
+        try file_writer.interface.flush();
     }
 
     pub fn writeCSVHeader(file: std.fs.File) !void {
@@ -296,62 +311,57 @@ pub const Record = union(RecordType) {
         };
     }
 
-    /// This formatter allows for printing an atom from any print() method. When {json} is passed, it prints json.
-    pub fn format(
-        self: Record,
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (comptime std.mem.eql(u8, fmt, "json")) {
-            _ = try std.json.stringify(self, .{}, writer);
-        } else {
-            // const uInfo = @typeInfo(@TypeOf(self)).Union;
-            const uInfo = @typeInfo(@TypeOf(self)).@"union";
+    /// This formatter allows for printing a record from any print() method using {f}.
+    pub fn format(self: Record, writer: *std.Io.Writer) !void {
+        // const uInfo = @typeInfo(@TypeOf(self)).Union;
+        const uInfo = @typeInfo(@TypeOf(self)).@"union";
 
-            if (uInfo.tag_type) |UnionTagType| {
-                inline for (uInfo.fields) |uField| {
-                    if (self == @field(UnionTagType, uField.name)) {
-                        switch (@typeInfo(uField.type)) {
-                            .void => try writer.print("{s}", .{uField.name}),
-                            .@"struct" => {
-                                const fields = @typeInfo(uField.type).@"struct".fields;
-                                inline for (fields) |field| {
-                                    const fmt2 = switch (@typeInfo(field.type)) {
-                                        .optional => |optional| switch (@typeInfo(optional.child)) {
-                                            .pointer => |ptr_info| switch (ptr_info.size) {
-                                                .slice, .many => "{?s}",
-                                                else => "{?}",
-                                            },
+        if (uInfo.tag_type) |UnionTagType| {
+            inline for (uInfo.fields) |uField| {
+                if (self == @field(UnionTagType, uField.name)) {
+                    switch (@typeInfo(uField.type)) {
+                        .void => try writer.print("{s}", .{uField.name}),
+                        .@"struct" => {
+                            const fields = @typeInfo(uField.type).@"struct".fields;
+                            inline for (fields) |field| {
+                                const fmt2 = switch (@typeInfo(field.type)) {
+                                    .optional => |optional| switch (@typeInfo(optional.child)) {
+                                        .pointer => |ptr_info| switch (ptr_info.size) {
+                                            .slice, .many => "{?s}",
                                             else => "{?}",
                                         },
-                                        .float => "{d:.3}",
-                                        .int => "{}",
-                                        .pointer => |ptr_info| switch (ptr_info.size) {
-                                            .slice, .many => "{s}",
-                                            else => "{}",
-                                        },
-                                        // .Pointer => |ptr| if (ptr.child == .Slice) "{s}",
+                                        else => "{?}",
+                                    },
+                                    .float => "{d:.3}",
+                                    .int => "{}",
+                                    .pointer => |ptr_info| switch (ptr_info.size) {
+                                        .slice, .many => "{s}",
                                         else => "{}",
-                                    };
-                                    try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(@field(self, uField.name), field.name) });
-                                    // try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(uField.type, field.name) });
-                                }
-                            },
-                            else => try writer.print("{?}", .{@field(self, uField.name)}),
-                        }
+                                    },
+                                    // .Pointer => |ptr| if (ptr.child == .Slice) "{s}",
+                                    else => "{}",
+                                };
+                                try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(@field(self, uField.name), field.name) });
+                                // try writer.print("{s}:" ++ fmt2 ++ " ", .{ field.name, @field(uField.type, field.name) });
+                            }
+                        },
+                        else => try writer.print("{any}", .{@field(self, uField.name)}),
                     }
                 }
             }
         }
     }
 
+    pub fn writeJson(self: Record, writer: *std.Io.Writer) !void {
+        try std.json.Stringify.value(self, .{}, writer);
+    }
+
     /// Calls free on a record if it has any allocated memory
     pub fn free(self: *Record, allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .atom, .hetatm => |*atom| atom.free(allocator),
+            .atom, .hetatm => |*atom_record| atom_record.free(allocator),
             .term => |*ter| ter.free(allocator),
-            .anisou => |*anisou| anisou.free(allocator),
+            .anisou => |*anisou_record| anisou_record.free(allocator),
             .cryst1 => |*cryst1| cryst1.free(allocator),
             .model, .connect, .origx1, .origx2, .origx3, .scale1, .scale2, .scale3, .endmdl => return,
         }
@@ -361,32 +371,32 @@ pub const Record = union(RecordType) {
 // TODO: Update test to handle different lines, rather than the same
 test "convert to atoms multi-line" {
     const lines = "ATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA\nATOM      1  N   MET     1      34.774  28.332  51.752  1.00  0.00      PROA";
-    var atoms = std.ArrayList(AtomRecord).init(testing.allocator);
+    var atoms: std.ArrayList(AtomRecord) = .empty;
     defer {
-        for (atoms.items) |*atom| atom.free(testalloc);
-        atoms.deinit();
+        for (atoms.items) |*atom_record| atom_record.free(testalloc);
+        atoms.deinit(testing.allocator);
     }
 
     var split = std.mem.splitSequence(u8, lines, "\n");
     while (split.next()) |line| {
-        const atom = try AtomRecord.new(line, 0, testalloc);
-        try atoms.append(atom);
+        const atom_record = try AtomRecord.new(line, 0, testalloc);
+        try atoms.append(testalloc, atom_record);
     }
     try expectEqual(2, atoms.items.len);
-    for (atoms.items) |atom| {
-        try expectEqual(1, atom.serial);
-        try testing.expectEqualStrings("N", atom.name);
-        try testing.expectEqualStrings("MET", atom.resName);
-        try expectEqual(null, atom.iCode);
-        try expectEqual(1, atom.resSeq);
-        try expectEqual(34.774, atom.x);
-        try expectEqual(28.332, atom.y);
-        try expectEqual(51.752, atom.z);
-        try expectEqual(1.00, atom.occupancy);
-        try expectEqual(0.00, atom.tempFactor);
-        try expectEqual(null, atom.element);
-        try expectEqual(null, atom.charge);
-        try testing.expectEqualStrings("PROA", atom.entry.?);
+    for (atoms.items) |atom_record| {
+        try expectEqual(1, atom_record.serial);
+        try testing.expectEqualStrings("N", atom_record.name);
+        try testing.expectEqualStrings("MET", atom_record.resName);
+        try expectEqual(null, atom_record.iCode);
+        try expectEqual(1, atom_record.resSeq);
+        try expectEqual(34.774, atom_record.x);
+        try expectEqual(28.332, atom_record.y);
+        try expectEqual(51.752, atom_record.z);
+        try expectEqual(1.00, atom_record.occupancy);
+        try expectEqual(0.00, atom_record.tempFactor);
+        try expectEqual(null, atom_record.element);
+        try expectEqual(null, atom_record.charge);
+        try testing.expectEqualStrings("PROA", atom_record.entry.?);
     }
 }
 
@@ -396,5 +406,5 @@ test "toJson" {
     defer record.free(testalloc);
 
     // use a format specifier to print json. yet another way to avoid allocting :^)
-    std.debug.print("\n{json}\n", .{record});
+    std.debug.print("\n{f}\n", .{std.json.fmt(record, .{})});
 }

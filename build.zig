@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
+    // const target = b.standardTargetOptions(.{});
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
@@ -34,9 +34,11 @@ pub fn build(b: *std.Build) void {
         .name = "pdb2fasta",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/fasta.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fasta.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     fasta.root_module.addImport("sonic-fasta", fastaModule);
     fasta.root_module.addImport("sonic", sonic);
@@ -52,9 +54,11 @@ pub fn build(b: *std.Build) void {
         .name = "sonic-pdb-parser",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     exe.root_module.addImport("sonic", sonic);
     exe.root_module.addImport("strings", strings);
@@ -90,24 +94,30 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     unit_tests.root_module.addImport("sonic", sonic);
     unit_tests.root_module.addImport("strings", strings);
 
     const sonic_test = b.addTest(.{
-        .root_source_file = b.path("src/records.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/records.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     sonic_test.root_module.addImport("strings", strings);
 
     const strings_test = b.addTest(.{
-        .root_source_file = b.path("src/strings.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/strings.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);

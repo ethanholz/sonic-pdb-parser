@@ -19,7 +19,7 @@
     flake-utils.lib.eachSystem systems (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
-        zig = zig-overlay.packages.${system}."0.15.1";
+        zig = zig-overlay.packages.${system}."0.15.2";
       in rec {
         formatter = nixpkgs.legacyPackages.${system}.nixpkgs-fmt;
         packages.default = packages.sonic-pdb-parser;

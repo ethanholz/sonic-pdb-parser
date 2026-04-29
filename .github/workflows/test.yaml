@@ -19,5 +19,8 @@ jobs:
         with:
           version: 0.16.0
 
+      - name: Build
+        run: zig build
+
       - name: Run unit tests
         run: zig build test

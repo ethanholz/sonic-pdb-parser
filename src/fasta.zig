@@ -8,7 +8,7 @@ const Args = struct {
     fileName: []const u8 = "",
     output: ?[]const u8 = null,
 
-    pub fn parseArgs(argsList: [][:0]u8) !Args {
+    pub fn parseArgs(argsList: []const [:0]const u8) !Args {
         var args = Args{};
         for (argsList, 0..) |arg, idx| {
             if (strings.equals(arg, "-f")) {
@@ -19,41 +19,43 @@ const Args = struct {
             }
             if (strings.equals(arg, "-h")) {
                 std.debug.print("Usage: pdb2fasta -f <file> -o <output>\n", .{});
-                std.posix.exit(0);
+                std.process.exit(0);
             }
         }
         if (strings.equals(args.fileName, "")) {
             std.debug.print("No file specified, please provide a file\n", .{});
-            std.posix.exit(1);
+            std.process.exit(1);
         }
         return args;
     }
 };
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    // const allocator = std.heap.page_allocator;
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    // const args = try std.process.argsAlloc(allocator);
+    // defer std.process.argsFree(allocator, args);
     const parsedArgs = try Args.parseArgs(args);
 
-    const file = try std.fs.cwd().openFile(parsedArgs.fileName, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(init.io, parsedArgs.fileName, .{});
+    defer file.close(init.io);
     var read_buffer: [4096]u8 = undefined;
-    var file_reader = file.reader(&read_buffer);
-    const atoms = try file_reader.interface.allocRemaining(allocator, .unlimited);
-    defer allocator.free(atoms);
+    var file_reader = file.reader(init.io, &read_buffer);
+    const atoms = try file_reader.interface.allocRemaining(gpa, .unlimited);
+    defer gpa.free(atoms);
 
-    const converted = try fasta.pdbToFasta(allocator, atoms);
-    defer allocator.free(converted);
+    const converted = try fasta.pdbToFasta(gpa, atoms);
+    defer gpa.free(converted);
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &stdout_buffer);
     try stdout_writer.interface.writeAll(converted);
     try stdout_writer.interface.flush();
     if (parsedArgs.output != null) {
-        const fastaPath = try std.fs.cwd().createFile(parsedArgs.output.?, .{});
-        defer fastaPath.close();
+        const fastaPath = try std.Io.Dir.cwd().createFile(init.io, parsedArgs.output.?, .{});
+        defer fastaPath.close(init.io);
         var write_buffer: [4096]u8 = undefined;
-        var fasta_writer = fastaPath.writerStreaming(&write_buffer);
+        var fasta_writer = fastaPath.writerStreaming(init.io, &write_buffer);
         try fasta_writer.interface.writeAll(converted);
         try fasta_writer.interface.flush();
     }

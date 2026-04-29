@@ -68,14 +68,11 @@ pub const PDB = struct {
         var recordNumber: u32 = 0;
         const end = std.mem.readInt(u48, "END   ", .little);
         while (true) {
-            const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
-                error.EndOfStream => break,
-                else => |e| return e,
-            };
+            const line = (try reader.takeDelimiter('\n')) orelse break;
             if (line.len < 6) continue;
             const tag_int = std.mem.readInt(u48, line[0..6], .little);
             if (tag_int == end) break;
-            const tag = std.meta.intToEnum(RecordType, tag_int) catch continue;
+            const tag = recordTypeFromInt(tag_int) orelse continue;
             if (tag == .endmdl) {
                 continue;
             }
@@ -108,10 +105,7 @@ pub fn PDBReader(reader: anytype, allocator: std.mem.Allocator) !std.ArrayList(R
     // Some of the CHARMM files are longer
     const end = std.mem.readInt(u48, "END   ", .little);
     while (true) {
-        const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| return e,
-        };
+        const line = (try reader.takeDelimiter('\n')) orelse break;
         if (line.len < 6) continue;
         const tag_int = std.mem.readInt(u48, line[0..6], .little);
         if (tag_int == end) break;
@@ -138,28 +132,38 @@ pub const RunRecord = struct {
     file: string,
 
     // there is no need to allocate here. you can print directly to the file.
-    pub fn writeCSVLine(self: *RunRecord, file: std.fs.File) !void {
+    pub fn writeCSVLine(self: *RunRecord, io: std.Io, file: std.Io.File) !void {
         var buffer: [1024]u8 = undefined;
-        var file_writer = file.writerStreaming(&buffer);
+        var file_writer = file.writerStreaming(io, &buffer);
         try file_writer.interface.print("{d},{d},{s}\n", .{ self.run, self.time, self.file });
         try file_writer.interface.flush();
     }
 
-    pub fn writeCSVHeader(file: std.fs.File) !void {
+    pub fn writeCSVHeader(io: std.Io, file: std.Io.File) !void {
         // const fields = @typeInfo(RunRecord).Struct.fields;
         const fields = @typeInfo(RunRecord).@"struct".fields;
         const len = fields.len;
+        var buffer: [1024]u8 = undefined;
+        var file_writer = file.writerStreaming(io, &buffer);
         inline for (fields, 0..) |field, idx| {
             std.debug.print("{s}\n", .{field.name});
-            _ = try file.write(field.name);
+            try file_writer.interface.writeAll(field.name);
             if (idx == len - 1) {
                 break;
             }
-            _ = try file.write(",");
+            try file_writer.interface.writeByte(',');
         }
-        _ = try file.write("\n");
+        try file_writer.interface.writeByte('\n');
+        try file_writer.interface.flush();
     }
 };
+
+pub fn recordTypeFromInt(value: u48) ?RecordType {
+    inline for (std.meta.tags(RecordType)) |tag| {
+        if (@intFromEnum(tag) == value) return tag;
+    }
+    return null;
+}
 
 // zig fmt: off
 /// An enum derived of possible records in a PDB file

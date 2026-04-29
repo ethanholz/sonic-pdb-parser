@@ -22,7 +22,7 @@ const Args = struct {
     output: string = "times.csv",
     json: bool = false,
 
-    pub fn parseArgs(argsList: [][:0]u8) !Args {
+    pub fn parseArgs(argsList: []const [:0]const u8) !Args {
         var args = Args{};
         for (argsList, 0..) |arg, idx| {
             if (strings.equals(arg, "-r")) {
@@ -37,59 +37,65 @@ const Args = struct {
             if (strings.equals(arg, "--json")) args.json = true;
             if (strings.equals(arg, "-h")) {
                 std.debug.print("Usage: exe -r <runs> -f <file> -o <output>\n", .{});
-                std.posix.exit(0);
+                std.process.exit(0);
             }
         }
         if (strings.equals(args.fileName, "")) {
             std.debug.print("No file specified, please provide a file\n", .{});
-            std.posix.exit(1);
+            std.process.exit(1);
         }
         return args;
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = init.gpa;
+    // defer _ = gpa.deinit();
+    // const allocator = gpa.allocator();
+    // const args = try std.process.argsAlloc(allocator);
+    // defer std.process.argsFree(allocator, args);
+    var args_arena = std.heap.ArenaAllocator.init(allocator);
+    defer args_arena.deinit();
+    const args = try init.minimal.args.toSlice(args_arena.allocator());
     const parsedArgs = try Args.parseArgs(args);
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arenaAllocator = arena.allocator();
 
-    const file = try fs.cwd().openFile(parsedArgs.fileName, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().openFile(init.io, parsedArgs.fileName, .{});
+    defer file.close(init.io);
 
     if (parsedArgs.runs == 1) {
         var read_buffer: [4096]u8 = undefined;
-        var file_reader = file.reader(&read_buffer);
+        var file_reader = file.reader(init.io, &read_buffer);
 
         var pdb = try PDB.init(arenaAllocator);
         defer pdb.deinit();
         try pdb.read(&file_reader.interface);
 
         var stdout_buffer: [4096]u8 = undefined;
-        var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+        var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &stdout_buffer);
         if (parsedArgs.json) {
             try pdb.writeJson(&stdout_writer.interface);
             try stdout_writer.interface.writeByte('\n');
+            try stdout_writer.flush();
         } else {
-            try stdout_writer.interface.print("{f}\n", .{pdb});
+            try stdout_writer.interface.print("{f}", .{pdb});
+            try stdout_writer.flush();
         }
         try stdout_writer.interface.flush();
         return;
     }
 
-    var timer = try std.time.Timer.start();
+    var timer_start = std.Io.Clock.awake.now(init.io);
     var times = try std.ArrayList(u64).initCapacity(allocator, @intCast(parsedArgs.runs));
     defer times.deinit(allocator);
     var sum: u64 = 0;
-    const csv = try fs.cwd().createFile(parsedArgs.output, .{});
-    defer csv.close();
-    try RunRecord.writeCSVHeader(csv);
+    const csv = try std.Io.Dir.cwd().createFile(init.io, parsedArgs.output, .{});
+    defer csv.close(init.io);
+    try RunRecord.writeCSVHeader(init.io, csv);
 
     // var arena = std.heap.ArenaAllocator.init(allocator);
     // defer arena.deinit();
@@ -98,17 +104,17 @@ pub fn main() !void {
     for (0..parsedArgs.runs) |i| {
         defer {
             _ = arena.reset(.retain_capacity);
-            file.seekTo(0) catch @panic("file error");
+            init.io.vtable.fileSeekTo(init.io.userdata, file, 0) catch @panic("file error");
         }
-        timer.reset();
+        timer_start = std.Io.Clock.awake.now(init.io);
         var read_buffer: [4096]u8 = undefined;
-        var file_reader = file.reader(&read_buffer);
+        var file_reader = file.reader(init.io, &read_buffer);
         var pdb = try PDB.init(arenaAllocator);
         try pdb.read(&file_reader.interface);
-        const elapsed = timer.read();
+        const elapsed: u64 = @intCast(timer_start.untilNow(init.io, .awake).toNanoseconds());
         try times.append(allocator, elapsed);
         var runRecord: RunRecord = RunRecord{ .run = i + 1, .time = elapsed, .file = parsedArgs.fileName };
-        try runRecord.writeCSVLine(csv);
+        try runRecord.writeCSVLine(init.io, csv);
         sum += elapsed;
         std.debug.print("Run {} Complete\n", .{i});
     }
